@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -490,50 +491,53 @@ func TestHandler_OnClose(t *testing.T) {
 	})
 
 	t.Run("OnClose with timeout", func(t *testing.T) {
-		closeTimeout := 100 * time.Millisecond
-		onCloseDelay := 200 * time.Millisecond
+		synctest.Test(t, func(t *testing.T) {
+			closeTimeout := 100 * time.Millisecond
+			onCloseDelay := 200 * time.Millisecond
 
-		var onCloseCalled atomic.Bool
-		var onCloseTimedOut atomic.Bool
-		onClose := func(ctx context.Context) error {
-			onCloseCalled.Store(true)
-			select {
-			case <-time.After(onCloseDelay):
-				return nil
-			case <-ctx.Done():
-				onCloseTimedOut.Store(true)
-				return ctx.Err()
+			var onCloseCalled atomic.Bool
+			var onCloseTimedOut atomic.Bool
+			onClose := func(ctx context.Context) error {
+				onCloseCalled.Store(true)
+				select {
+				case <-time.After(onCloseDelay):
+					return nil
+				case <-ctx.Done():
+					onCloseTimedOut.Store(true)
+					return ctx.Err()
+				}
 			}
-		}
 
-		h := NewHandler(HandlerOptions{
-			CloseTimeout: closeTimeout,
-			OnClose:      onClose,
+			h := NewHandler(HandlerOptions{
+				CloseTimeout: closeTimeout,
+				OnClose:      onClose,
+			})
+
+			writer := &mockResponseWriter{}
+			startTime := time.Now()
+
+			h.Handle(context.Background(), writer, &cacheproto.Request{
+				ID:      1,
+				Command: cacheproto.CmdClose,
+			})
+			synctest.Wait()
+
+			elapsed := time.Since(startTime)
+
+			// OnClose should have been called and timed out
+			assert.True(t, onCloseCalled.Load())
+			assert.True(t, onCloseTimedOut.Load())
+
+			// Should respect timeout
+			assert.GreaterOrEqual(t, elapsed, closeTimeout)
+			assert.Less(t, elapsed, onCloseDelay)
+
+			// Response should still be sent
+			require.Len(t, writer.responses, 1)
+			resp := writer.responses[0]
+			assert.Equal(t, int64(1), resp.ID)
+			assert.Empty(t, resp.Err)
 		})
-
-		writer := &mockResponseWriter{}
-		startTime := time.Now()
-
-		h.Handle(context.Background(), writer, &cacheproto.Request{
-			ID:      1,
-			Command: cacheproto.CmdClose,
-		})
-
-		elapsed := time.Since(startTime)
-
-		// OnClose should have been called and timed out
-		assert.True(t, onCloseCalled.Load())
-		assert.True(t, onCloseTimedOut.Load())
-
-		// Should respect timeout
-		assert.GreaterOrEqual(t, elapsed, closeTimeout)
-		assert.Less(t, elapsed, onCloseDelay)
-
-		// Response should still be sent
-		require.Len(t, writer.responses, 1)
-		resp := writer.responses[0]
-		assert.Equal(t, int64(1), resp.ID)
-		assert.Empty(t, resp.Err)
 	})
 
 	t.Run("OnClose returns error", func(t *testing.T) {
@@ -562,44 +566,47 @@ func TestHandler_OnClose(t *testing.T) {
 	})
 
 	t.Run("OnClose without timeout waits indefinitely", func(t *testing.T) {
-		onCloseDelay := 100 * time.Millisecond
-		var onCloseCalled atomic.Bool
-		var onCloseCompleted atomic.Bool
+		synctest.Test(t, func(t *testing.T) {
+			onCloseDelay := 100 * time.Millisecond
+			var onCloseCalled atomic.Bool
+			var onCloseCompleted atomic.Bool
 
-		onClose := func(_ context.Context) error {
-			onCloseCalled.Store(true)
-			time.Sleep(onCloseDelay)
-			onCloseCompleted.Store(true)
-			return nil
-		}
+			onClose := func(_ context.Context) error {
+				onCloseCalled.Store(true)
+				time.Sleep(onCloseDelay)
+				onCloseCompleted.Store(true)
+				return nil
+			}
 
-		h := NewHandler(HandlerOptions{
-			CloseTimeout: 0, // No timeout
-			OnClose:      onClose,
+			h := NewHandler(HandlerOptions{
+				CloseTimeout: 0, // No timeout
+				OnClose:      onClose,
+			})
+
+			writer := &mockResponseWriter{}
+			startTime := time.Now()
+
+			h.Handle(context.Background(), writer, &cacheproto.Request{
+				ID:      1,
+				Command: cacheproto.CmdClose,
+			})
+			synctest.Wait()
+
+			elapsed := time.Since(startTime)
+
+			// OnClose should have been called and completed
+			assert.True(t, onCloseCalled.Load())
+			assert.True(t, onCloseCompleted.Load())
+
+			// Should wait for OnClose to complete
+			assert.GreaterOrEqual(t, elapsed, onCloseDelay)
+
+			// Response should be sent
+			require.Len(t, writer.responses, 1)
+			resp := writer.responses[0]
+			assert.Equal(t, int64(1), resp.ID)
+			assert.Empty(t, resp.Err)
 		})
-
-		writer := &mockResponseWriter{}
-		startTime := time.Now()
-
-		h.Handle(context.Background(), writer, &cacheproto.Request{
-			ID:      1,
-			Command: cacheproto.CmdClose,
-		})
-
-		elapsed := time.Since(startTime)
-
-		// OnClose should have been called and completed
-		assert.True(t, onCloseCalled.Load())
-		assert.True(t, onCloseCompleted.Load())
-
-		// Should wait for OnClose to complete
-		assert.GreaterOrEqual(t, elapsed, onCloseDelay)
-
-		// Response should be sent
-		require.Len(t, writer.responses, 1)
-		resp := writer.responses[0]
-		assert.Equal(t, int64(1), resp.ID)
-		assert.Empty(t, resp.Err)
 	})
 
 	t.Run("OnClose with background operations", func(t *testing.T) {
