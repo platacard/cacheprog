@@ -1,0 +1,40 @@
+# prepare environment, we don't need s3 here
+recording-server start CACHEPROG_METRICS_PUSH_ENDPOINT
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache CACHEPROG_METRICS_PUSH_METHOD=PUT CACHEPROG_METRICS_PUSH_EXTRA_LABELS=testlabel=testvalue
+set-cacheprog GOCACHEPROG
+
+# run with vm-style histograms
+env CACHEPROG_METRICS_PUSH_EXTRA_HEADERS=X-Test-Record-Key:vmhist,X-Extra-Header:some CACHEPROG_USE_VM_HISTOGRAMS=1
+go build -o test_bin$exe ./main.go
+rm test_bin$exe
+recording-server get vmhist method
+stdout PUT
+recording-server get vmhist headers
+stdout 'X-Extra-Header: some'
+recording-server get vmhist body
+stdout 'cacheprog_overall_run_time_ms'
+stdout 'cacheprog_object_get_size_bytes_bucket.*vmrange=(.+)\.\.(.+)'
+stdout 'testlabel="testvalue"'
+
+# run with prometheus-style histograms
+env CACHEPROG_METRICS_PUSH_EXTRA_HEADERS=X-Test-Record-Key:promhist CACHEPROG_USE_VM_HISTOGRAMS=0
+rm ${CACHEPROG_ROOT_DIRECTORY}
+go build -o test_bin$exe ./main.go
+rm test_bin$exe
+recording-server get promhist method
+stdout PUT
+recording-server get promhist headers
+! stdout 'X-Extra-Header: some'
+recording-server get promhist body
+stdout 'cacheprog_overall_run_time_ms'
+stdout 'cacheprog_object_get_size_bytes_bucket.*le="\+Inf"'
+stdout 'testlabel="testvalue"'
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}

@@ -1,0 +1,58 @@
+services:
+  toxiproxy:
+    image: ${TOXIPROXY_IMAGE:-ghcr.io/shopify/toxiproxy:2.12.0}
+    restart: always
+    ports:
+      - "127.0.0.1:8474:8474"
+      - "127.0.0.1:9000:9000" # for minio, simulate network latency
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json:ro
+    command: -config /toxiproxy.json
+    networks:
+      - minio_network
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-07-23T15-54-02Z}
+    restart: always
+    ports:
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+    networks:
+      - minio_network
+  mc:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-07-23T15-54-02Z}
+    container_name: minio-client
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: on-failure
+    entrypoint: 
+      - /bin/bash
+      - -c
+      - |
+        set -eou pipefail;
+        until mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}; do
+          echo 'Waiting for MinIO to be ready...'
+          sleep 1
+        done;
+        mc mb --ignore-existing myminio/files-bucket;
+        read -s;
+    healthcheck:
+      test: ["CMD", "mc", "stat", "myminio/files-bucket"]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+    networks:
+      - minio_network
+    stdin_open: true
+    tty: true
+
+networks:
+  minio_network:

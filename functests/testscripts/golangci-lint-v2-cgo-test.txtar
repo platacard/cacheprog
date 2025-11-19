@@ -1,0 +1,88 @@
+[!cgo] skip 'CGO is disabled'
+
+# this is officially not recommended way of installing golangci-lint
+# but it's choosen because it's easiest and most portable way to get it for testing purposes
+install-go-binary github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0 ./bin
+exec ./bin/golangci-lint$exe --version
+stdout 'version 2\.4\.0(.*)h1:qz6O6vr7kVzXJqyvHjHSz5fA3D\+PM8v96QU5gxZCNWM='
+
+# this needed to eliminate error "failed to create modcache index dir" from logs
+# https://github.com/golangci/golangci-lint/issues/6037
+env HOME=$WORK/.testhome
+mkdir -p $HOME
+
+# control run
+env GOLANGCI_LINT_CACHE=$WORK/.golangci-lint-cache
+exec ./bin/golangci-lint$exe run ./...
+! stderr '(error|fail)'
+rm ${GOLANGCI_LINT_CACHE}
+
+# run with cache
+mkdir -p $WORK/disk-cache
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+
+# if short testing enable, use only disk-backed cache
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/golangci-lint-v2-cgo-test
+# cleanup path for consistency
+[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+
+# run with cacheprog first time
+set-cacheprog GOCACHEPROG
+set-cacheprog GOLANGCI_LINT_CACHEPROG
+exec ./bin/golangci-lint$exe run ./...
+# we have no way to actually determine if cache entries has been used or not, so just rely on cacheprog log output
+stderr 'Starting cacheprog'
+! stderr '(error|fail)'
+
+# ensure that minio bucket is not empty
+[!short] mc du ${MC_FULLPATH}
+[!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] ! stdout '^0B'
+[!short] ! stdout '(^|\W)0 object'
+
+# run with cacheprog second time, clean disk storage
+rm ${CACHEPROG_ROOT_DIRECTORY}
+exec ./bin/golangci-lint$exe run ./...
+stderr 'Starting cacheprog'
+! stderr '(error|fail)'
+
+-- hello.h --
+#ifndef HELLO_H
+#define HELLO_H
+const char * get_hello();
+#endif
+
+-- hello.c --
+#include "hello.h"
+
+const char * get_hello() {
+    return "Hello from C in another file!";
+}
+
+-- main.go --
+package main
+
+// #include "hello.h"
+import "C"
+
+import "fmt"
+
+func main() {
+    fmt.Println(C.GoString(C.get_hello()))
+}
+
+-- go.mod --
+module lintcgotest
+
+go 1.25
+
+-- golangci-lint.yml --
+version: "2"
+linters:
+  enable-all: true
+  disable:
+    - forbidigo
+    - gofmt
+    - goimports
+    - gofumpt

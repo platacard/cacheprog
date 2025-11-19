@@ -1,0 +1,82 @@
+# run server
+set-cacheprog CACHEPROG_PATH
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/server-mode-test
+[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+allocate-port CACHEPROG_SERVER_PORT
+env CACHEPROG_PROXY_LISTEN_ADDRESS=localhost:${CACHEPROG_SERVER_PORT}
+recording-server start CACHEPROG_METRICS_PROXY_ENDPOINT
+env CACHEPROG_METRICS_PROXY_EXTRA_HEADERS=X-Extra-Header:some CACHEPROG_METRICS_PROXY_EXTRA_LABELS=job=proxytest,labeltoproxy=valuetoproxy
+exec ${CACHEPROG_PATH} proxy &proxy&
+
+# prepare client cacheprog environment
+mkdir -p $WORK/disk-cache
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=disabled
+env CACHEPROG_METRICS_PUSH_EXTRA_LABELS= CACHEPROG_METRICS_PUSH_METHOD=PUT CACHEPROG_USE_VM_HISTOGRAMS=1
+env CACHEPROG_REMOTE_STORAGE_TYPE=http CACHEPROG_HTTP_STORAGE_BASE_URL=http://localhost:${CACHEPROG_SERVER_PORT}/
+env CACHEPROG_METRICS_PUSH_ENDPOINT=http://localhost:${CACHEPROG_SERVER_PORT}/metricsproxy
+set-cacheprog GOCACHEPROG
+
+# run first time
+env COMPILER_EXPRESSION='(compile|gccgo)( |\.exe).*main\.go'
+env CACHEPROG_METRICS_PUSH_EXTRA_HEADERS=X-Test-Record-Key:metricproxy_1,X-Some-Header:hdr
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+! stderr 'Configuring S3 storage'
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# ensure that minio bucket is not empty
+[!short] mc du ${MC_FULLPATH}
+[!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] ! stdout '^0B'
+[!short] ! stdout '(^|\W)0 object'
+
+# run with cache second time to ensure we're getting consistent result, clean disk cache
+rm ${CACHEPROG_ROOT_DIRECTORY}
+env CACHEPROG_METRICS_PUSH_EXTRA_HEADERS=X-Test-Record-Key:metricproxy_2,X-Some-Header:hdr2
+go build -x -o test_bin$exe ./main.go
+# if s3 used we should not run compiler, if s3 is not used we should
+[!short] ! stderr ${COMPILER_EXPRESSION}
+[short] stderr ${COMPILER_EXPRESSION}
+! stderr 'Configuring S3 storage'
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# terminate proxy and check if everything has been propagated
+kill -INT proxy
+wait proxy
+[!short] stderr 'Configuring S3 storage'
+
+# check if metrics has been propagated
+recording-server get metricproxy_1 path
+# this is prometheus-format path, accepted both by Prometheus and VictoriaMetrics
+stdout '/metrics/job/proxytest/labeltoproxy/valuetoproxy'
+recording-server get metricproxy_1 headers
+stdout 'X-Extra-Header: some'
+stdout 'X-Some-Header: hdr'
+recording-server get metricproxy_1 body
+stdout 'cacheprog_overall_run_time_ms'
+
+recording-server get metricproxy_2 path
+stdout '/metrics/job/proxytest/labeltoproxy/valuetoproxy'
+recording-server get metricproxy_2 headers
+stdout 'X-Extra-Header: some'
+stdout 'X-Some-Header: hdr2'
+recording-server get metricproxy_2 body
+stdout 'cacheprog_overall_run_time_ms'
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}
+
+-- expected_output.txt --
+Hello world!

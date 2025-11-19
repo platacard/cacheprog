@@ -1,0 +1,12 @@
+# This test checks that we compiled code doesn't contain 'MethodByName' 
+# or similar calls that may disable dead-code-elimination (dce). 
+# We really need it functioning because AWS SDK without dce almost doubles executable size.
+# We want our executable to be small to reduce build times on CI environments.
+
+set-cacheprog COMPILED_BINARY
+go tool nm ${COMPILED_BINARY}
+! stdout 'reflect\.(Value|Type)\.MethodByName'
+! stdout 'reflect\.(Value|Type)\.Method'
+
+# this check needed to ensure that test is working correctly
+! stdout 'no symbol'
