@@ -1,0 +1,88 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: cacheprog
+    main: ./cmd/cacheprog
+    binary: cacheprog
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    ignore:
+      - goos: windows
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X 'main.Version=v{{ .Version }}'
+    flags:
+      - -trimpath
+
+archives:
+  - id: cacheprog
+    formats: [ 'tar.gz' ]
+    name_template: >-
+      {{ .ProjectName }}_v{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [ 'zip' ]
+    files:
+      - LICENSE
+      - README.md
+
+dockers_v2:
+  - images:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/cacheprog"
+    tags:
+      - "v{{ .Version }}"
+      - "v{{ .Major }}.{{ .Minor }}"
+      - "latest"
+    dockerfile: build/cacheprog/goreleaser.Dockerfile
+    labels:
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "v{{ .Version }}"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: 'Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Refactors'
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: 'Other'
+      order: 999
+
