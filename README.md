@@ -1,5 +1,8 @@
 Cacheprog
 =========
+[![Build Status](https://github.com/platacard/cacheprog/actions/workflows/pull_request.yml/badge.svg)](https://github.com/platacard/cacheprog/actions/workflows/pull_request.yml)
+![coverage](https://raw.githubusercontent.com/platacard/cacheprog/badges/.badges/main/coverage.svg)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 This tool is a [GOCACHEPROG](https://go.dev/doc/go1.24#gocacheprog) implementation that uses S3/Minio-compatible storages as a remote storage backend.
 It helps to maintain a stable and fast CI job run times by hooking up Go compiler cache directly to external storage.
