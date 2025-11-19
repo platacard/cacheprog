@@ -1,0 +1,8 @@
+[
+    {
+      "name": "minio_master",
+      "listen": "[::]:9000",
+      "upstream": "minio:9000",
+      "enabled": true
+    }
+]

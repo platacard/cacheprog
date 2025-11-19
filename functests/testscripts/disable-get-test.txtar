@@ -1,0 +1,44 @@
+env COMPILER_EXPRESSION='(compile|gccgo)( |\.exe).*main\.go'
+
+# control run
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# prepare environment
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+mkdir -p ${CACHEPROG_ROOT_DIRECTORY}
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/disable-get-test
+# cleanup path for consistency
+[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+
+# run with cacheprog first time to populate cache
+set-cacheprog GOCACHEPROG
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# disable 'get', we must recompile project again
+env CACHEPROG_DISABLE_GET=true
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}
+
+-- expected_output.txt --
+Hello world!

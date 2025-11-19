@@ -1,0 +1,76 @@
+[!cgo] skip 'CGO is disabled'
+env COMPILER_EXPRESSION='(cgo).*main\.go'
+
+# control run
+go build -x -o test_bin$exe .
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# run with cache
+mkdir -p $WORK/disk-cache
+
+# if short testing enable, use only disk-backed cache
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/cgo-test
+# cleanup path for consistency
+[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+
+# run with cacheprog first time
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+set-cacheprog GOCACHEPROG
+go build -x -o test_bin$exe .
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# ensure that minio bucket is not empty
+[!short] mc du ${MC_FULLPATH}
+[!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] ! stdout '^0B'
+[!short] ! stdout '(^|\W)0 object'
+
+# run with cache second time to ensure we're getting consistent result, clean disk cache
+rm ${CACHEPROG_ROOT_DIRECTORY}
+go build -x -o test_bin$exe .
+# if s3 used we should not run compiler, if s3 is not used we should
+[!short] ! stderr ${COMPILER_EXPRESSION}
+[short] stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+-- hello.h --
+#ifndef HELLO_H
+#define HELLO_H
+const char * get_hello();
+#endif
+
+-- hello.c --
+#include "hello.h"
+
+const char * get_hello() {
+    return "Hello from C in another file!";
+}
+
+-- main.go --
+package main
+
+// #include "hello.h"
+import "C"
+
+import "fmt"
+
+func main() {
+    fmt.Println(C.GoString(C.get_hello()))
+}
+
+-- go.mod --
+module cgotest
+
+go 1.25
+
+-- expected_output.txt --
+Hello from C in another file!

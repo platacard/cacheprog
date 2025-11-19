@@ -1,0 +1,6 @@
+/bin
+/.cachetest
+/coverage
+*.out
+*-tests.json
+dist/

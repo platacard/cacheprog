@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: Linter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            functests/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.6
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            functests/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Create coverage directory
+        run: mkdir -p coverage
+
+      - name: Run unit tests
+        run: |
+          gotestsum \
+            --format testname \
+            --jsonfile unit-tests.json \
+            -- \
+            -race \
+            -covermode=atomic \
+            -coverprofile=coverage/unit.out \
+            -coverpkg=./... \
+            ./...
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: coverage/unit.out
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: unit-tests.json
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            functests/go.sum
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Create coverage directory
+        run: mkdir -p coverage/e2e
+
+      - name: Run e2e tests
+        working-directory: functests
+        env:
+          GOCOVERDIR: ${{ github.workspace }}/coverage/e2e
+        run: |
+          gotestsum \
+            --format testname \
+            --jsonfile ../e2e-tests.json \
+            -- \
+            -race \
+            -count=1 \
+            ./...
+
+      - name: Convert coverage
+        run: |
+          if [ -d coverage/e2e ] && [ "$(ls -A coverage/e2e)" ]; then
+            go tool covdata textfmt -i=coverage/e2e -o=coverage/e2e.out
+          else
+            touch coverage/e2e.out
+          fi
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage
+          path: coverage/e2e.out
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: e2e-tests.json
+
+  coverage:
+    name: Publish Coverage
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-tests]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            functests/go.sum
+
+      - name: Create coverage directory
+        run: mkdir -p coverage
+
+      - name: Download unit test coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: coverage
+
+      - name: Download e2e test coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-coverage
+          path: coverage
+
+      - name: Publish coverage report
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          profile: coverage/unit.out,coverage/e2e.out
+          git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
+          git-branch: badges 
+
