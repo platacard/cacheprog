@@ -3,7 +3,7 @@ module github.com/platacard/cacheprog
 go 1.25
 
 require (
-	github.com/KimMachineGun/automemlimit v0.7.4
+	github.com/KimMachineGun/automemlimit v0.7.5
 	github.com/VictoriaMetrics/metrics v1.40.2
 	github.com/alexflint/go-arg v1.6.0
 	github.com/aws/aws-sdk-go-v2 v1.39.6
