@@ -4,3 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    groups:
+      aws_sdk:
+        applies-to: version-updates
+        patterns:
+          - "github.com/aws/aws-sdk-go-v2/**"
+          - "github.com/aws/smithy-go/**"
