@@ -18,7 +18,7 @@ type HTTP struct {
 
 func NewHTTP(client *http.Client, endpoint string, extraHeaders http.Header) *HTTP {
 	return &HTTP{
-		client:       http.DefaultClient,
+		client:       client,
 		endpoint:     endpoint,
 		extraHeaders: extraHeaders,
 	}
