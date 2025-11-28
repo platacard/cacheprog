@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -18,7 +19,7 @@ type HTTP struct {
 
 func NewHTTP(client *http.Client, endpoint string, extraHeaders http.Header) *HTTP {
 	return &HTTP{
-		client:       http.DefaultClient,
+		client:       cmp.Or(client, http.DefaultClient),
 		endpoint:     endpoint,
 		extraHeaders: extraHeaders,
 	}

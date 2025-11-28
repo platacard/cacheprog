@@ -335,7 +335,7 @@ func (d *Disk) readMeta(file string) (*metaEntry, error) {
 }
 
 func (d *Disk) writeMeta(file string, meta *metaEntry) error {
-	metaFile, err := d.root.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	metaFile, err := d.root.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
 	}
