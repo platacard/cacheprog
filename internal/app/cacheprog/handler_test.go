@@ -771,16 +771,16 @@ func TestHandler_ConcurrentOperations(t *testing.T) {
 
 		// Launch concurrent requests
 		var wg sync.WaitGroup
-		for i := 0; i < numRequests; i++ {
-			wg.Add(1)
-			go func(reqID int64) {
-				defer wg.Done()
-				h.Handle(context.Background(), writer, &cacheproto.Request{
-					ID:       reqID,
-					Command:  cacheproto.CmdGet,
-					ActionID: []byte("test"),
-				})
-			}(int64(i + 1))
+		for i := range numRequests {
+			wg.Go(func() {
+				func(reqID int64) {
+					h.Handle(context.Background(), writer, &cacheproto.Request{
+						ID:       reqID,
+						Command:  cacheproto.CmdGet,
+						ActionID: []byte("test"),
+					})
+				}(int64(i + 1))
+			})
 		}
 
 		wg.Wait()
