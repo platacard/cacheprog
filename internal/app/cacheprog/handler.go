@@ -350,8 +350,7 @@ func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWrite
 	// perform remote storage upload in background to avoid response blocking
 	// upload failure is not critical, we already stored object in local storage
 	if h.remoteStorage != nil {
-		h.closeWG.Add(1)
-		go h.putToRemote(req.ActionID)
+		h.closeWG.Go(func() { h.putToRemote(req.ActionID) })
 	}
 
 	h.writeResponse(ctx, writer, &cacheproto.Response{
@@ -361,7 +360,6 @@ func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWrite
 }
 
 func (h *Handler) putToRemote(actionID []byte) {
-	defer h.closeWG.Done()
 	ctx := logging.AttachArgs(context.Background(), "action_id", logging.Bytes(actionID))
 
 	ctx, exit := h.enterPutToRemote(ctx)
@@ -429,8 +427,7 @@ func (h *Handler) handleClose(ctx context.Context, writer cacheproto.ResponseWri
 
 	close(h.closeChan)
 	if h.onClose != nil {
-		h.closeWG.Add(1)
-		go h.handleOnClose(ctx)
+		h.closeWG.Go(func() { h.handleOnClose(ctx) })
 	}
 	h.closeWait()
 
@@ -487,8 +484,6 @@ func (h *Handler) handleOnClose(ctx context.Context) {
 	if h.onClose == nil {
 		return
 	}
-
-	defer h.closeWG.Done()
 
 	if h.closeTimeout != 0 {
 		var cancel context.CancelFunc
