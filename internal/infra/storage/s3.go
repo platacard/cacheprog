@@ -191,7 +191,7 @@ func GetBucketRegion(ctx context.Context, bucket string, awsOptions ...func(*aws
 	// default region to retrieve real bucket region
 	const defaultRegion = "us-east-1"
 
-	var loadOptions []func(*awsConfig.LoadOptions) error
+	loadOptions := make([]func(*awsConfig.LoadOptions) error, 0, 1+len(awsOptions))
 	loadOptions = append(loadOptions, awsConfig.WithRegion(defaultRegion))
 	loadOptions = append(loadOptions, awsOptions...)
 

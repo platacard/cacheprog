@@ -1,4 +1,4 @@
-package metrics
+package metrics //nolint:revive // metrics package from standard library is not used in this project
 
 import (
 	"context"
