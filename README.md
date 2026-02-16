@@ -93,11 +93,14 @@ Environment variables for S3-compatible storage are:
 * `CACHEPROG_S3_CREDENTIALS_ENDPOINT` - Credentials endpoint for S3-compatible storages, not needed for AWS S3.
 * `CACHEPROG_S3_PREFIX` - Prefix for S3 keys, useful to run multiple apps on same bucket i.e. for separation between multiple projects in one bucket or coexistance with [sccache](https://github.com/mozilla/sccache). Templated, `GOOS`, `GOARCH` and `env.<env var>` are available. Template format: `{% GOOS %}`.
 * `CACHEPROG_S3_EXPIRATION` - Sets expiration for each S3 object during Put, 0 - no expiration. Accepts duration string, e.g. `1h`, `10m`, `10s`, etc.
+* `CACHEPROG_S3_EXCLUDE_HEADERS_FROM_SIGNING` - Exclude specific headers from request signature. Comma-separated list, e.g. `Accept-Encoding,...`. Some S3-compatible storage providers are altering headers internally and this breaks request signature verification.
 
 Coniguration notes for some S3-compatible storages:
 * **AWS S3**: nothing special needed.
 * **Minio**: use schemes `minio+http://`, `minio+https://` for endpoint because Minio uses a little bit different path resolution logic for buckets. Login and password are provided via `CACHEPROG_S3_ACCESS_KEY_ID` and `CACHEPROG_S3_ACCESS_KEY_SECRET`.
 * **Google Cloud Storage**: https://cloud.google.com/storage/docs/aws-simple-migration, extra variables needed: `CACHEPROG_S3_ENDPOINT` set to `https://storage.googleapis.com`, `CACHEPROG_S3_ACCESS_KEY_ID`, `CACHEPROG_S3_ACCESS_KEY_SECRET`. `CACHEPROG_S3_REGION` may be set to `auto`.
+Also you can set `CACHEPROG_S3_EXCLUDE_HEADERS_FROM_SIGNING` to `Accept-Encoding` if you're getting errors like `SignatureDoesNotMatch` or just observe zero hits every time.
+See https://github.com/aws/aws-sdk-go-v2/issues/1816 and https://discuss.google.dev/t/server-side-modification-of-header-seems-to-cause-signaturedoesnotmatch-error/141788/3 for more details.
 * **DigitalOcean Spaces**: https://docs.digitalocean.com/products/spaces/how-to/use-aws-sdks/, extra variables needed: `CACHEPROG_S3_ENDPOINT` set to `https://<region>.digitaloceanspaces.com`, `CACHEPROG_S3_ACCESS_KEY_ID` is `SPACES_KEY`, `CACHEPROG_S3_ACCESS_KEY_SECRET` is `SPACES_SECRET`. `CACHEPROG_S3_REGION` may be set to `us-east-1`.
 * **Alibaba OSS**: https://www.alibabacloud.com/help/en/oss/developer-reference/use-amazon-s3-sdks-to-access-oss, extra variables needed: `CACHEPROG_S3_ENDPOINT` set to `https://oss-<region>.aliyuncs.com`, `CACHEPROG_S3_ACCESS_KEY_ID` is `OSS_ACCESS_KEY_ID`, `CACHEPROG_S3_ACCESS_KEY_SECRET` is `OSS_ACCESS_KEY_SECRET`. `CACHEPROG_S3_REGION` may be set to `oss-<region>`.
 * **Ceph via Rados Gateway**: https://docs.ceph.com/en/latest/radosgw/s3/, extra variables needed: `CACHEPROG_S3_ENDPOINT` set to Rados Gateway URL, `CACHEPROG_S3_ACCESS_KEY_ID`, `CACHEPROG_S3_ACCESS_KEY_SECRET`, `CACHEPROG_S3_FORCE_PATH_STYLE` set to `true`.
