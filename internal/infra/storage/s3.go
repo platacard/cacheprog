@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	signer "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/endpointcreds"
@@ -71,8 +70,9 @@ type S3Config struct {
 
 	// client-level basic settings
 
-	Bucket string // required
-	Region string
+	Bucket                    string // required
+	Region                    string
+	ExcludeHeadersFromSigning []string // some s3-compatible providers require to exclude some headers from signing
 
 	// client-level path resolver settings
 
@@ -108,6 +108,7 @@ func ConfigureS3(cfg S3Config) (*S3, error) {
 		"expiration", cfg.Expiration,
 		"endpoint", cfg.Endpoint,
 		"credentialsEndpoint", cfg.CredentialsEndpoint,
+		"excludeHeadersFromSigning", cfg.ExcludeHeadersFromSigning,
 	)
 
 	var (
@@ -118,6 +119,7 @@ func ConfigureS3(cfg S3Config) (*S3, error) {
 	s3Options = append(s3Options, func(options *s3.Options) {
 		options.UsePathStyle = cfg.ForcePathStyle
 		options.DisableLogOutputChecksumValidationSkipped = true
+		options.RetryMaxAttempts = 1
 	})
 
 	if logger := slog.Default(); logger != nil {
@@ -141,6 +143,11 @@ func ConfigureS3(cfg S3Config) (*S3, error) {
 		default:
 			return nil, fmt.Errorf("unsupported endpoint scheme: %s", u.Scheme)
 		}
+	}
+	if len(cfg.ExcludeHeadersFromSigning) > 0 {
+		s3Options = append(s3Options, s3.WithAPIOptions(func(s *middleware.Stack) error {
+			return addIgnoreHeadersSigningMiddleware(s, cfg.ExcludeHeadersFromSigning)
+		}))
 	}
 
 	var credsProviders []aws.CredentialsProvider
@@ -345,24 +352,6 @@ func (m *minioEndpointResolver) ResolveEndpoint(_ context.Context, params s3.End
 	u := *m.url
 	u.Path = path.Join(u.Path, *params.Bucket)
 	return transport.Endpoint{URI: u}, nil
-}
-
-type propagateSHA256Middleware struct {
-	sha256Sum []byte
-}
-
-func (m *propagateSHA256Middleware) ID() string {
-	return "PropagateSHA256Middleware"
-}
-
-func (m *propagateSHA256Middleware) HandleInitialize(ctx context.Context, input middleware.InitializeInput, next middleware.InitializeHandler) (
-	out middleware.InitializeOutput, metadata middleware.Metadata, err error,
-) {
-	return next.HandleInitialize(signer.SetPayloadHash(ctx, hex.EncodeToString(m.sha256Sum)), input)
-}
-
-func addPropagateSHA256Middleware(stack *middleware.Stack, sha256Sum []byte) error {
-	return stack.Initialize.Add(&propagateSHA256Middleware{sha256Sum: sha256Sum}, middleware.Before)
 }
 
 func templatePrefix(prefix string) (string, error) {

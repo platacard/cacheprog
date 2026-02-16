@@ -35,16 +35,17 @@ type RemoteStorageArgs struct {
 }
 
 type S3Args struct {
-	Endpoint            *url.URL      `arg:"--s3-endpoint,env:S3_ENDPOINT" placeholder:"URL" help:"Endpoint for S3-compatible storages, use schemes minio+http://, minio+https://, etc. for minio compatibility."`
-	ForcePathStyle      bool          `arg:"--s3-force-path-style,env:S3_FORCE_PATH_STYLE" placeholder:"true/false" help:"Forces path style endpoints, useful for some S3-compatible storages."`
-	Region              string        `arg:"--s3-region,env:S3_REGION" placeholder:"REGION" help:"S3 region name. If not provided will be detected automatically via GetBucketLocation API."`
-	Bucket              string        `arg:"--s3-bucket,env:S3_BUCKET" placeholder:"BUCKET" help:"S3 bucket name."`
-	Prefix              string        `arg:"--s3-prefix,env:S3_PREFIX" placeholder:"PREFIX" help:"Prefix for S3 keys, useful to run multiple apps on same bucket. Templated, GOOS, GOARCH and env.<env var> are available. Template format: {% GOOS %}"`
-	Expiration          time.Duration `arg:"--s3-expiration,env:S3_EXPIRATION" placeholder:"DURATION" help:"Sets expiration for each S3 object during Put, 0 - no expiration."`
-	CredentialsEndpoint string        `arg:"--s3-credentials-endpoint,env:S3_CREDENTIALS_ENDPOINT" placeholder:"URL" help:"Credentials endpoint for S3-compatible storages."`
-	AccessKeyID         string        `arg:"--s3-access-key-id,env:S3_ACCESS_KEY_ID" placeholder:"ID" help:"S3 access key id."`
-	AccessKeySecret     string        `arg:"--s3-access-key-secret,env:S3_ACCESS_KEY_SECRET" placeholder:"SECRET" help:"S3 access key secret."`
-	SessionToken        string        `arg:"--s3-session-token,env:S3_SESSION_TOKEN" placeholder:"TOKEN" help:"S3 session token."`
+	Endpoint                  *url.URL      `arg:"--s3-endpoint,env:S3_ENDPOINT" placeholder:"URL" help:"Endpoint for S3-compatible storages, use schemes minio+http://, minio+https://, etc. for minio compatibility."`
+	ForcePathStyle            bool          `arg:"--s3-force-path-style,env:S3_FORCE_PATH_STYLE" placeholder:"true/false" help:"Forces path style endpoints, useful for some S3-compatible storages."`
+	Region                    string        `arg:"--s3-region,env:S3_REGION" placeholder:"REGION" help:"S3 region name. If not provided will be detected automatically via GetBucketLocation API."`
+	Bucket                    string        `arg:"--s3-bucket,env:S3_BUCKET" placeholder:"BUCKET" help:"S3 bucket name."`
+	ExcludeHeadersFromSigning []string      `arg:"--s3-exclude-headers-from-signing,env:S3_EXCLUDE_HEADERS_FROM_SIGNING" placeholder:"[header]" help:"Headers to exclude from signing, comma separated list"`
+	Prefix                    string        `arg:"--s3-prefix,env:S3_PREFIX" placeholder:"PREFIX" help:"Prefix for S3 keys, useful to run multiple apps on same bucket. Templated, GOOS, GOARCH and env.<env var> are available. Template format: {% GOOS %}"`
+	Expiration                time.Duration `arg:"--s3-expiration,env:S3_EXPIRATION" placeholder:"DURATION" help:"Sets expiration for each S3 object during Put, 0 - no expiration."`
+	CredentialsEndpoint       string        `arg:"--s3-credentials-endpoint,env:S3_CREDENTIALS_ENDPOINT" placeholder:"URL" help:"Credentials endpoint for S3-compatible storages."`
+	AccessKeyID               string        `arg:"--s3-access-key-id,env:S3_ACCESS_KEY_ID" placeholder:"ID" help:"S3 access key id."`
+	AccessKeySecret           string        `arg:"--s3-access-key-secret,env:S3_ACCESS_KEY_SECRET" placeholder:"SECRET" help:"S3 access key secret."`
+	SessionToken              string        `arg:"--s3-session-token,env:S3_SESSION_TOKEN" placeholder:"TOKEN" help:"S3 session token."`
 }
 
 type HTTPStorageArgs struct {
@@ -63,16 +64,17 @@ func (r *RemoteStorageArgs) configureRemoteStorage() (cacheprog.RemoteStorage, e
 	switch r.RemoteStorageType {
 	case "s3":
 		return storage.ConfigureS3(storage.S3Config{
-			KeyPrefix:           r.Prefix,
-			Expiration:          r.Expiration,
-			Bucket:              r.Bucket,
-			Region:              r.Region,
-			Endpoint:            urlOrEmpty(r.Endpoint),
-			ForcePathStyle:      r.ForcePathStyle,
-			CredentialsEndpoint: r.CredentialsEndpoint,
-			AccessKeyID:         r.AccessKeyID,
-			AccessKeySecret:     r.AccessKeySecret,
-			SessionToken:        r.SessionToken,
+			KeyPrefix:                 r.Prefix,
+			Expiration:                r.Expiration,
+			Bucket:                    r.Bucket,
+			Region:                    r.Region,
+			ExcludeHeadersFromSigning: r.ExcludeHeadersFromSigning,
+			Endpoint:                  urlOrEmpty(r.Endpoint),
+			ForcePathStyle:            r.ForcePathStyle,
+			CredentialsEndpoint:       r.CredentialsEndpoint,
+			AccessKeyID:               r.AccessKeyID,
+			AccessKeySecret:           r.AccessKeySecret,
+			SessionToken:              r.SessionToken,
 		})
 	case "http":
 		return storage.ConfigureHTTP(urlOrEmpty(r.BaseURL), headerValuesToHTTP(r.ExtraHeaders))

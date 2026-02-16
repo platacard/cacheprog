@@ -1,0 +1,49 @@
+[short] skip 'remote storage is not available in short mode'
+
+env COMPILER_EXPRESSION='(compile|gccgo)( |\.exe).*main\.go'
+
+# simulate settings necessary for GCS https://github.com/aws/aws-sdk-go-v2/issues/1816
+# minio does not break aws-sdk-go v2 with default settings, however it also should accept this
+env CACHEPROG_S3_EXCLUDE_HEADERS_FROM_SIGNING=Accept-Encoding
+
+mkdir -p $WORK/disk-cache
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+
+env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/exclude-headers-test
+# cleanup path for consistency
+env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+mc rm --recursive --force ${MC_FULLPATH}
+
+# run with cacheprog first time
+set-cacheprog GOCACHEPROG
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# ensure that minio bucket is not empty
+mc du ${MC_FULLPATH}
+stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+! stdout '^0B'
+! stdout '(^|\W)0 object'
+
+# run with cache second time to ensure we're getting consistent result, clean disk cache
+rm ${CACHEPROG_ROOT_DIRECTORY}
+go build -x -o test_bin$exe ./main.go
+! stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}
+
+-- expected_output.txt --
+Hello world!
