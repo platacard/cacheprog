@@ -1,6 +1,6 @@
 # run server
 set-cacheprog CACHEPROG_PATH
-[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/server-mode-test
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/server-mode-test CACHEPROG_REMOTE_STORAGE_MAX_CONSECUTIVE_ERRORS=-1
 [!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
 [!short] mc rm --recursive --force ${MC_FULLPATH}
 allocate-port CACHEPROG_SERVER_PORT

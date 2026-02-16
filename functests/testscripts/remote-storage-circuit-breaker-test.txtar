@@ -1,0 +1,25 @@
+# prepare client cacheprog environment
+mkdir -p $WORK/disk-cache
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+env CACHEPROG_REMOTE_STORAGE_TYPE=http CACHEPROG_HTTP_STORAGE_BASE_URL=http://0.0.0.0:1/ CACHEPROG_REMOTE_STORAGE_MAX_CONSECUTIVE_ERRORS=10
+
+# run compilation
+set-cacheprog GOCACHEPROG
+go build -o test_bin$exe ./main.go
+stderr -count=9 'Failed to (get from)|(put to) remote storage'
+stderr 'Remote storage has been disabled because of too many consecutive errors'
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}
+
+-- expected_output.txt --
+Hello world!

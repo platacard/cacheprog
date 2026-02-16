@@ -80,6 +80,12 @@ To use custom external storage incompatible with AWS S3 you can run HTTP server 
 
 Switching between different storages is done via `CACHEPROG_REMOTE_STORAGE_TYPE` environment variable. Available values: `s3`, `http`, `disabled`. Default: `disabled`.
 
+This tool is equipped with circuit-breaker for remote storage to automatically disable it after `CACHEPROG_REMOTE_STORAGE_MAX_CONSECUTIVE_ERRORS` (10 by default) has been registered. This feature serves multiple purposes:
+* avoid bloating of stderr or log file with errors in case of remote storage unavailability or misconfiguration
+* do not slowdown compiler in case of timeout errors
+
+To disable it set this variable to zero or negative value.
+
 ### S3-compatible storage configuration
 
 Environment variables for S3-compatible storage are:

@@ -406,7 +406,9 @@ func (h *Handler) putToRemote(actionID []byte) {
 		return
 	}
 
-	_, err = h.remoteStorage.Put(ctx, &PutRequest{
+	// error handling is not critical, we already stored object in local storage
+	// logging is done by observers
+	_, _ = h.remoteStorage.Put(ctx, &PutRequest{
 		ActionID:             localObjStream.ActionID,
 		OutputID:             localObjStream.OutputID,
 		Size:                 compressResult.Size,
@@ -416,10 +418,6 @@ func (h *Handler) putToRemote(actionID []byte) {
 		CompressionAlgorithm: compressResult.Algorithm,
 		UncompressedSize:     localObjStream.Size,
 	})
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to push object to remote storage", logging.Error(err))
-		return
-	}
 }
 
 func (h *Handler) handleClose(ctx context.Context, writer cacheproto.ResponseWriter, req *cacheproto.Request) {
