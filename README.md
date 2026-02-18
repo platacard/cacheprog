@@ -57,7 +57,7 @@ So we decided to develop such plugin to interact with S3 in our CI environment. 
 
 We are aware about already existing implementation from [Tailscale](https://github.com/tailscale/go-cache-plugin/) but it has features that we don't need (http and module/sumdb proxy) and doesn't have features we need: object compression, Minio compatibility for testing purposes, metrics pushing, pluggable external storages like it's done in [Athens](https://gomods.io/configuration/storage/#external-storage).
 
-Also we tried to maintain a balance between resulting binary size and verstility by choosing dependencies wisely i.e. https://github.com/VictoriaMetrics/metrics/ instead of standard prometheus metrics library and keeping track of [dead-code-elimination usage](https://appliedgo.net/spotlight/reflection-binary-size/).
+Also we tried to maintain a balance between resulting binary size and versatility by choosing dependencies wisely i.e. https://github.com/VictoriaMetrics/metrics/ instead of standard prometheus metrics library and keeping track of [dead-code-elimination usage](https://appliedgo.net/spotlight/reflection-binary-size/).
 
 To reduce storage cost and upload/download times objects are transparently being compressed/decompressed using `zstd` algorithm with default settings.
 To improve run times this tool asynchronously uploads objects to remote storage and storing object metadata in S3 metadata instead of additional metadata file.
