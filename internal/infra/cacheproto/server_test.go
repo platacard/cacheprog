@@ -158,3 +158,41 @@ func TestServer_CloseOnEOF(t *testing.T) {
 	err := s.Run()
 	require.NoError(t, err)
 }
+
+func TestServer_Stop_DeadlockOnReadError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	handler := NewMockHandler(ctrl)
+	handler.EXPECT().Supports(gomock.Any()).Return(false).AnyTimes()
+
+	pr, pw := io.Pipe()
+	var outBuf bytes.Buffer
+	s := NewServer(ServerOptions{
+		Reader:  pr,
+		Writer:  &outBuf,
+		Handler: handler,
+	})
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Run() }()
+
+	stopDone := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopDone)
+	}()
+
+	go func() {
+		pw.Write([]byte("this is not valid json\n\n"))
+		pw.Close()
+	}()
+
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: Stop() blocked indefinitely after Run() returned a read error")
+	}
+
+	err := <-errCh
+	require.Error(t, err, "Run() should return a parse error for invalid JSON input")
+}
