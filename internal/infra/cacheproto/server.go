@@ -59,10 +59,9 @@ func (s *Server) Run() error {
 		return fmt.Errorf("handshake failure: %w", err)
 	}
 
-	var signalOnce sync.Once
-	signalCanStopWait := func() {
-		signalOnce.Do(func() { close(s.canStopWait) })
-	}
+	signalCanStopWait := sync.OnceFunc(func() {
+		close(s.canStopWait)
+	})
 	defer signalCanStopWait()
 
 	sem := make(chan struct{}, 1)
@@ -96,11 +95,12 @@ func (s *Server) Run() error {
 			seenClose = true
 		}
 
+		// this needed to ensure that entire body is read before we start reading next request
 		reqBody := request.Body
 		if reqBody != nil {
 			request.Body = &unblockingReader{r: reqBody, sem: sem}
 		} else {
-			<-sem
+			<-sem // release semaphore, we can read next request
 		}
 
 		go func() {
@@ -111,6 +111,7 @@ func (s *Server) Run() error {
 
 	signalCanStopWait()
 	s.stopWait.Wait()
+	// sometimes client doesn't send close command, so we need to send it ourselves
 	if !seenClose && s.handler.Supports(CmdClose) {
 		slog.InfoContext(ctx, "Client didn't send close command, simulating it")
 		s.handler.Handle(ctx, &noopWriter{ctx: ctx}, &Request{

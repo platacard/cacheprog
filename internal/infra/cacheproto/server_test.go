@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -160,39 +161,36 @@ func TestServer_CloseOnEOF(t *testing.T) {
 }
 
 func TestServer_Stop_DeadlockOnReadError(t *testing.T) {
-	ctrl := gomock.NewController(t)
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		handler := NewMockHandler(ctrl)
+		handler.EXPECT().Supports(gomock.Any()).Return(false).AnyTimes()
 
-	handler := NewMockHandler(ctrl)
-	handler.EXPECT().Supports(gomock.Any()).Return(false).AnyTimes()
+		pr, pw := io.Pipe()
+		var outBuf bytes.Buffer
+		s := NewServer(ServerOptions{
+			Reader:  pr,
+			Writer:  &outBuf,
+			Handler: handler,
+		})
 
-	pr, pw := io.Pipe()
-	var outBuf bytes.Buffer
-	s := NewServer(ServerOptions{
-		Reader:  pr,
-		Writer:  &outBuf,
-		Handler: handler,
-	})
+		errCh := make(chan error, 1)
+		go func() { errCh <- s.Run() }()
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- s.Run() }()
+		go func() {
+			pw.Write([]byte("this is not valid json\n\n"))
+			pw.Close()
+		}()
 
-	stopDone := make(chan struct{})
-	go func() {
+		synctest.Wait()
+
 		s.Stop()
-		close(stopDone)
-	}()
 
-	go func() {
-		pw.Write([]byte("this is not valid json\n\n"))
-		pw.Close()
-	}()
-
-	select {
-	case <-stopDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("deadlock: Stop() blocked indefinitely after Run() returned a read error")
-	}
-
-	err := <-errCh
-	require.Error(t, err, "Run() should return a parse error for invalid JSON input")
+		select {
+		case err := <-errCh:
+			require.Error(t, err, "Run() should return a parse error")
+		default:
+			t.Fatal("Run() did not return even after Stop()")
+		}
+	})
 }
