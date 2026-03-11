@@ -1030,6 +1030,7 @@ func TestHandler_EnterPutToRemote_CloseRace(t *testing.T) {
 				return nil, ctx.Err()
 			}).AnyTimes()
 
+		// Put #1 acquires the semaphore and blocks until put1Release is closed.
 		h.Handle(context.Background(), writer, &cacheproto.Request{
 			ID: 1, Command: cacheproto.CmdPut,
 			ActionID: []byte("test"), OutputID: []byte("test"),
@@ -1037,12 +1038,14 @@ func TestHandler_EnterPutToRemote_CloseRace(t *testing.T) {
 		})
 		<-put1Acquired
 
+		// Put #2 starts but blocks in enterPutToRemote waiting for the semaphore.
 		h.Handle(context.Background(), writer, &cacheproto.Request{
 			ID: 2, Command: cacheproto.CmdPut,
 			ActionID: []byte("test"), OutputID: []byte("test"),
 			BodySize: int64(len(payload)), Body: bytes.NewReader(payload),
 		})
-		synctest.Wait() 
+		// Wait until Put #2 goroutine is durably blocked in the semaphore select.
+		synctest.Wait()
 
 		closeDone := make(chan struct{})
 		go func() {
@@ -1051,9 +1054,15 @@ func TestHandler_EnterPutToRemote_CloseRace(t *testing.T) {
 			})
 			close(closeDone)
 		}()
+		// Wait until Close goroutine and Put #2 goroutine are both blocked
+		// in their respective inner selects waiting on the closeTimeout timer.
 		synctest.Wait()
 
+		// Advance fake time past closeTimeout: both the Put #2 context deadline
+		// and the closeWait timeout fire, allowing Close to return.
 		time.Sleep(closeTimeout)
+		// Wait until Close goroutine has returned and Put #2 goroutine has exited
+		// via outCtx.Done().
 		synctest.Wait()
 
 		select {
@@ -1068,6 +1077,7 @@ func TestHandler_EnterPutToRemote_CloseRace(t *testing.T) {
 			close(allDone)
 		}()
 
+		// Release Put #1 so its goroutine can finish and closeWG drains.
 		close(put1Release)
 		synctest.Wait()
 

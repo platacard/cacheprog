@@ -182,6 +182,8 @@ func TestServer_Stop_DeadlockOnReadError(t *testing.T) {
 			pw.Close()
 		}()
 
+		// Wait until Run() has processed the invalid JSON and returned,
+		// and the writer goroutine has exited.
 		synctest.Wait()
 
 		s.Stop()
