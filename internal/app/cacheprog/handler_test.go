@@ -973,3 +973,118 @@ func TestHandler_ConcurrentWithClose(t *testing.T) {
 		assert.LessOrEqual(t, closeTime, closeTimeout*3/2) // Allow some buffer
 	})
 }
+
+func TestHandler_EnterPutToRemote_CloseRace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+
+		localStorage := NewMockLocalStorage(ctrl)
+		remoteStorage := NewMockRemoteStorage(ctrl)
+		compressionCodec := NewMockCompressionCodec(ctrl)
+		writer := &mockResponseWriter{}
+
+		const closeTimeout = 150 * time.Millisecond
+
+		h := NewHandler(HandlerOptions{
+			RemoteStorage:           remoteStorage,
+			LocalStorage:            localStorage,
+			CompressionCodec:        compressionCodec,
+			MaxConcurrentRemotePuts: 1,
+			CloseTimeout:            closeTimeout,
+		})
+
+		payload := []byte("data")
+		compressed := []byte("compressed")
+
+		localStorage.EXPECT().PutLocal(gomock.Any(), gomock.Any()).
+			Return(&LocalPutResponse{DiskPath: "/tmp/test"}, nil).AnyTimes()
+		localStorage.EXPECT().GetLocalObject(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ *LocalObjectGetRequest) (*LocalObjectGetResponse, error) {
+				return &LocalObjectGetResponse{
+					ActionID: []byte("test"), OutputID: []byte("test"),
+					Size: int64(len(payload)),
+					Body: &mockReadSeekCloser{bytes.NewReader(payload)},
+				}, nil
+			}).AnyTimes()
+		compressionCodec.EXPECT().Compress(gomock.Any()).
+			DoAndReturn(func(_ *CompressRequest) (*CompressResponse, error) {
+				return &CompressResponse{
+					Size:      int64(len(compressed)),
+					Body:      &mockReadSeekCloser{bytes.NewReader(compressed)},
+					Algorithm: "zstd",
+				}, nil
+			}).AnyTimes()
+
+		put1Acquired := make(chan struct{})
+		put1Release := make(chan struct{})
+
+		var putCallCount atomic.Int32
+		remoteStorage.EXPECT().Put(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ *PutRequest) (*PutResponse, error) {
+				if putCallCount.Add(1) == 1 {
+					close(put1Acquired)
+					<-put1Release
+					return &PutResponse{}, nil
+				}
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}).AnyTimes()
+
+		// Put #1 acquires the semaphore and blocks until put1Release is closed.
+		h.Handle(context.Background(), writer, &cacheproto.Request{
+			ID: 1, Command: cacheproto.CmdPut,
+			ActionID: []byte("test"), OutputID: []byte("test"),
+			BodySize: int64(len(payload)), Body: bytes.NewReader(payload),
+		})
+		<-put1Acquired
+
+		// Put #2 starts but blocks in enterPutToRemote waiting for the semaphore.
+		h.Handle(context.Background(), writer, &cacheproto.Request{
+			ID: 2, Command: cacheproto.CmdPut,
+			ActionID: []byte("test"), OutputID: []byte("test"),
+			BodySize: int64(len(payload)), Body: bytes.NewReader(payload),
+		})
+		// Wait until Put #2 goroutine is durably blocked in the semaphore select.
+		synctest.Wait()
+
+		closeDone := make(chan struct{})
+		go func() {
+			h.Handle(context.Background(), writer, &cacheproto.Request{
+				ID: 999, Command: cacheproto.CmdClose,
+			})
+			close(closeDone)
+		}()
+		// Wait until Close goroutine and Put #2 goroutine are both blocked
+		// in their respective inner selects waiting on the closeTimeout timer.
+		synctest.Wait()
+
+		// Advance fake time past closeTimeout: both the Put #2 context deadline
+		// and the closeWait timeout fire, allowing Close to return.
+		time.Sleep(closeTimeout)
+		// Wait until Close goroutine has returned and Put #2 goroutine has exited
+		// via outCtx.Done().
+		synctest.Wait()
+
+		select {
+		case <-closeDone:
+		default:
+			t.Fatal("Close did not return after closeTimeout elapsed")
+		}
+
+		allDone := make(chan struct{})
+		go func() {
+			h.closeWG.Wait()
+			close(allDone)
+		}()
+
+		// Release Put #1 so its goroutine can finish and closeWG drains.
+		close(put1Release)
+		synctest.Wait()
+
+		select {
+		case <-allDone:
+		default:
+			t.Error("goroutine leak: Put #2 goroutine did not exit after Close")
+		}
+	})
+}

@@ -455,16 +455,33 @@ func (h *Handler) enterPutToRemote(ctx context.Context) (outCtx context.Context,
 	outCtx = ctx
 	outCtxCancel := func() {}
 
-	// if close command was received - we should return timeout context
-	select {
-	case _, ok := <-h.closeChan:
-		if !ok {
-			outCtx, outCtxCancel = context.WithTimeout(ctx, h.closeTimeout)
-		}
-	default:
+	applyCloseTimeout := func() {
+		outCtxCancel()
+		outCtx, outCtxCancel = context.WithTimeout(ctx, h.closeTimeout)
 	}
 
-	if h.remotePutSema != nil {
+	if h.remotePutSema == nil {
+		select {
+		case <-h.closeChan:
+			applyCloseTimeout()
+		default:
+		}
+		return outCtx, outCtxCancel
+	}
+
+	select {
+	case h.remotePutSema <- struct{}{}:
+		select {
+		case <-h.closeChan:
+			applyCloseTimeout()
+		default:
+		}
+		return outCtx, func() {
+			<-h.remotePutSema
+			outCtxCancel()
+		}
+	case <-h.closeChan:
+		applyCloseTimeout()
 		select {
 		case h.remotePutSema <- struct{}{}:
 			return outCtx, func() {
@@ -473,6 +490,7 @@ func (h *Handler) enterPutToRemote(ctx context.Context) (outCtx context.Context,
 			}
 		case <-outCtx.Done():
 		}
+	case <-ctx.Done():
 	}
 
 	return outCtx, outCtxCancel

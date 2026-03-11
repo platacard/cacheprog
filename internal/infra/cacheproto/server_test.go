@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -157,4 +158,41 @@ func TestServer_CloseOnEOF(t *testing.T) {
 	// Run server
 	err := s.Run()
 	require.NoError(t, err)
+}
+
+func TestServer_Stop_DeadlockOnReadError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		handler := NewMockHandler(ctrl)
+		handler.EXPECT().Supports(gomock.Any()).Return(false).AnyTimes()
+
+		pr, pw := io.Pipe()
+		var outBuf bytes.Buffer
+		s := NewServer(ServerOptions{
+			Reader:  pr,
+			Writer:  &outBuf,
+			Handler: handler,
+		})
+
+		errCh := make(chan error, 1)
+		go func() { errCh <- s.Run() }()
+
+		go func() {
+			pw.Write([]byte("this is not valid json\n\n"))
+			pw.Close()
+		}()
+
+		// Wait until Run() has processed the invalid JSON and returned,
+		// and the writer goroutine has exited.
+		synctest.Wait()
+
+		s.Stop()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err, "Run() should return a parse error")
+		default:
+			t.Fatal("Run() did not return even after Stop()")
+		}
+	})
 }

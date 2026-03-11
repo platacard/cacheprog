@@ -59,6 +59,11 @@ func (s *Server) Run() error {
 		return fmt.Errorf("handshake failure: %w", err)
 	}
 
+	signalCanStopWait := sync.OnceFunc(func() {
+		close(s.canStopWait)
+	})
+	defer signalCanStopWait()
+
 	sem := make(chan struct{}, 1)
 	var seenClose bool
 	for !s.stop.Load() {
@@ -68,7 +73,6 @@ func (s *Server) Run() error {
 		if errors.Is(err, io.EOF) {
 			slog.InfoContext(ctx, "Stopping server")
 			s.stop.Store(true)
-			close(s.canStopWait)
 			break
 		}
 		if err != nil {
@@ -84,7 +88,7 @@ func (s *Server) Run() error {
 
 		s.stopWait.Add(1)
 		if s.stop.Load() {
-			close(s.canStopWait)
+			signalCanStopWait()
 		}
 
 		if !seenClose && request.Command == CmdClose {
@@ -105,7 +109,7 @@ func (s *Server) Run() error {
 		}()
 	}
 
-	<-s.canStopWait
+	signalCanStopWait()
 	s.stopWait.Wait()
 	// sometimes client doesn't send close command, so we need to send it ourselves
 	if !seenClose && s.handler.Supports(CmdClose) {
