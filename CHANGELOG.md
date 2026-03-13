@@ -13,6 +13,11 @@ The guideline for versioning is as follows:
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-03-13
+- Fix some goroutine leaks and deadlocks: https://github.com/platacard/cacheprog/pull/30
+- Use `synctest` for concurrency-related tests to make them more reliable
+- Upgrade dependencies
+
 ## [1.1.0] - 2026-02-18
 
 - Added ability to exclude specified http headers from request signing in S3 client. Mainly to support Google Cloud Storage, see [README.md](./README.md#s3-compatible-storage-configuration) for more details.
