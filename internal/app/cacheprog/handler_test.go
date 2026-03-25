@@ -183,6 +183,40 @@ func TestHandler_Handle_Get(t *testing.T) {
 		assert.True(t, resp.Miss)
 	})
 
+	t.Run("remote storage error degrades to miss", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+
+		localStorage := NewMockLocalStorage(ctrl)
+		remoteStorage := NewMockRemoteStorage(ctrl)
+		compressionCodec := NewMockCompressionCodec(ctrl)
+		writer := &mockResponseWriter{}
+
+		h := NewHandler(HandlerOptions{
+			RemoteStorage:    remoteStorage,
+			LocalStorage:     localStorage,
+			CompressionCodec: compressionCodec,
+		})
+		localStorage.EXPECT().
+			GetLocal(gomock.Any(), &LocalGetRequest{ActionID: actionID}).
+			Return(nil, ErrNotFound)
+
+		remoteStorage.EXPECT().
+			Get(gomock.Any(), &GetRequest{ActionID: actionID}).
+			Return(nil, errors.New("connection refused"))
+
+		h.Handle(ctx, writer, &cacheproto.Request{
+			ID:       4,
+			Command:  cacheproto.CmdGet,
+			ActionID: actionID,
+		})
+
+		require.Len(t, writer.responses, 1)
+		resp := writer.responses[0]
+		assert.Equal(t, int64(4), resp.ID)
+		assert.True(t, resp.Miss)
+		assert.Empty(t, resp.Err)
+	})
+
 	t.Run("disable get", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 

@@ -278,9 +278,11 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 		})
 		return
 	default:
+		// degrade remote storage errors to cache misses to avoid failing the build;
+		// error is already logged by the observer and counted by the circuit breaker
 		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to get object: %v", err),
+			ID:   req.ID,
+			Miss: true,
 		})
 		return
 	}
