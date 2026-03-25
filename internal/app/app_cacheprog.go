@@ -25,6 +25,7 @@ type CacheprogAppArgs struct {
 	MaxBackgroundWait       time.Duration `arg:"--max-background-wait,env:MAX_BACKGROUND_WAIT" placeholder:"DURATION" default:"10s" help:"Max time to wait for waiting of background operations to complete"`
 	MinRemotePutSize        int64         `arg:"--min-remote-put-size,env:MIN_REMOTE_PUT_SIZE" placeholder:"SIZE" help:"Min size of object to push to remote storage, no size limit if not provided"`
 	DisableGet              bool          `arg:"--disable-get,env:DISABLE_GET" help:"Disable getting objects from any storage, useful to force rebuild of the project and rewrite cache"`
+	ReadOnly                bool          `arg:"--read-only,env:READ_ONLY" help:"Disable writing to remote storage"`
 }
 
 type RemoteStorageArgs struct {
@@ -127,6 +128,7 @@ func (a *CacheprogAppArgs) Run(ctx context.Context) error {
 		CloseTimeout:            a.MaxBackgroundWait,
 		CompressionCodec:        compression.NewCodec(),
 		DisableGet:              a.DisableGet,
+		ReadOnly:                a.ReadOnly,
 	})
 	defer func() {
 		statistics := h.GetStatistics()
