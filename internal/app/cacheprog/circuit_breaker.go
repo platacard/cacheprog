@@ -15,7 +15,6 @@ type RemoteStorageCircuitBreaker struct {
 	upstream             RemoteStorage
 	maxConsecutiveErrors int64
 	retryAfter           time.Duration
-	now                  func() time.Time // for testing
 
 	currentConsecutiveErrors atomic.Int64
 	lastTrippedNano          atomic.Int64
@@ -26,7 +25,6 @@ func NewRemoteStorageCircuitBreaker(upstream RemoteStorage, maxConsecutiveErrors
 		upstream:             upstream,
 		maxConsecutiveErrors: maxConsecutiveErrors,
 		retryAfter:           retryAfter,
-		now:                  time.Now,
 	}
 }
 
@@ -43,7 +41,7 @@ func (b *RemoteStorageCircuitBreaker) isOpen() bool {
 	}
 
 	lastTripped := b.lastTrippedNano.Load()
-	now := b.now().UnixNano()
+	now := time.Now().UnixNano()
 	if now-lastTripped >= b.retryAfter.Nanoseconds() {
 		// Use CompareAndSwap so only one concurrent caller wins the probe
 		if b.lastTrippedNano.CompareAndSwap(lastTripped, now) {
@@ -56,7 +54,7 @@ func (b *RemoteStorageCircuitBreaker) isOpen() bool {
 }
 
 func (b *RemoteStorageCircuitBreaker) trip(ctx context.Context, err error) {
-	b.lastTrippedNano.Store(b.now().UnixNano())
+	b.lastTrippedNano.Store(time.Now().UnixNano())
 	// this may be logged multiple times because of concurrent requests but it's not a problem
 	slog.ErrorContext(ctx, "Remote storage has been disabled because of too many consecutive errors", logging.Error(err))
 }

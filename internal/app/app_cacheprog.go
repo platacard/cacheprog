@@ -31,7 +31,7 @@ type RemoteStorageArgs struct {
 	S3Args
 	HTTPStorageArgs
 
-	RemoteStorageType    string `arg:"--remote-storage-type,env:REMOTE_STORAGE_TYPE" placeholder:"TYPE" default:"disabled" help:"Remote storage type. Available: s3, http, disabled"`
+	RemoteStorageType    string        `arg:"--remote-storage-type,env:REMOTE_STORAGE_TYPE" placeholder:"TYPE" default:"disabled" help:"Remote storage type. Available: s3, http, disabled"`
 	MaxConsecutiveErrors int64         `arg:"--max-consecutive-errors,env:REMOTE_STORAGE_MAX_CONSECUTIVE_ERRORS" default:"10" placeholder:"NUM" help:"Max number of consecutive errors to tolerate before disabling the remote storage, zero or negative value means unlimited"`
 	RetryAfter           time.Duration `arg:"--retry-after,env:REMOTE_STORAGE_RETRY_AFTER" default:"15s" placeholder:"DURATION" help:"How long to wait before probing remote storage after circuit breaker trips, zero disables recovery"`
 }
