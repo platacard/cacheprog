@@ -350,8 +350,11 @@ func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWrite
 		return
 	}
 
-	// perform remote storage upload in background to avoid response blocking
-	// upload failure is not critical, we already stored object in local storage
+	// Perform remote storage upload in background to avoid response blocking.
+	// Upload failure is not critical, we already stored object in local storage.
+	// In read-only mode we skip the remote upload but still accept the put command
+	// (rather than disabling put support entirely) so that the local disk cache
+	// remains functional.
 	if h.remoteStorage != nil && !h.readOnly {
 		h.closeWG.Go(func() { h.putToRemote(req.ActionID) })
 	}

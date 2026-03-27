@@ -13,6 +13,7 @@ The guideline for versioning is as follows:
 
 ## [Unreleased]
 - Added half-open state to circuit breaker: after `retryAfter` elapses, a single probe request is allowed through to test if the upstream has recovered
+- Added `--disable-put` / `DISABLE_PUT` flag to disable writing to remote storage
 
 ## [1.1.1] - 2026-03-13
 - Fix some goroutine leaks and deadlocks: https://github.com/platacard/cacheprog/pull/30
