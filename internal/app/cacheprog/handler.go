@@ -155,6 +155,7 @@ type Handler struct {
 	onClose      func(ctx context.Context) error
 
 	disableGet bool
+	disablePut bool
 
 	// counters for statistic output
 	getCalls atomic.Int64
@@ -170,6 +171,7 @@ type HandlerOptions struct {
 	LocalStorage            LocalStorage     // local storage getter and pusher
 	CompressionCodec        CompressionCodec // compression codec to use on remote storage, if not provided - no compression will be used
 	DisableGet              bool             // disable getting objects from any storage, useful to force rebuild of the project and rewrite cache
+	DisablePut              bool             // disable writing to remote storage
 
 	CloseTimeout time.Duration                   // max time to wait for handler to close, 0 - no timeout
 	OnClose      func(ctx context.Context) error // if provided - expected to be blocking, called on close command
@@ -197,6 +199,7 @@ func NewHandler(opts HandlerOptions) *Handler {
 		onClose:          opts.OnClose,
 		closeChan:        make(chan struct{}),
 		disableGet:       opts.DisableGet,
+		disablePut:       opts.DisablePut,
 	}
 }
 
@@ -551,7 +554,7 @@ func (h *Handler) Supports(cmd cacheproto.Cmd) bool {
 	case cacheproto.CmdGet:
 		return !h.disableGet
 	case cacheproto.CmdPut:
-		return true
+		return !h.disablePut
 	default:
 		return false
 	}

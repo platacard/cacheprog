@@ -1,0 +1,60 @@
+env COMPILER_EXPRESSION='(compile|gccgo)( |\.exe).*main\.go'
+
+# control run
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# prepare environment
+env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
+mkdir -p ${CACHEPROG_ROOT_DIRECTORY}
+[!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/disable-put-test
+# cleanup path for consistency
+[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+
+# run with cacheprog to populate both local and remote cache
+set-cacheprog GOCACHEPROG
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# ensure that minio bucket is not empty (cache was uploaded)
+[!short] mc du ${MC_FULLPATH}
+[!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] ! stdout '^0B'
+[!short] ! stdout '(^|\W)0 object'
+
+# clear remote storage
+[!short] mc rm --recursive --force ${MC_FULLPATH}
+
+# clear local disk cache to force recompilation
+rm ${CACHEPROG_ROOT_DIRECTORY}
+mkdir -p ${CACHEPROG_ROOT_DIRECTORY}
+
+# rebuild with put disabled — cacheprog does not advertise put support, so S3 stays empty
+env CACHEPROG_DISABLE_PUT=true
+go build -x -o test_bin$exe ./main.go
+stderr ${COMPILER_EXPRESSION}
+exec ./test_bin$exe
+cmp stdout expected_output.txt
+rm test_bin$exe
+
+# verify S3 is still empty — disable-put prevented remote uploads
+[!short] ! mc du ${MC_FULLPATH}
+
+-- main.go --
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello world!")
+}
+
+-- expected_output.txt --
+Hello world!

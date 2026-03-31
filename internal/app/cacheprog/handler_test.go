@@ -429,6 +429,16 @@ func TestHandler_Handle_Put(t *testing.T) {
 		assert.Equal(t, int64(1), resp.ID)
 		assert.Equal(t, "/tmp/cache/789", resp.DiskPath)
 	})
+
+	t.Run("disable put", func(t *testing.T) {
+		h := NewHandler(HandlerOptions{
+			DisablePut: true,
+		})
+
+		assert.False(t, h.Supports(cacheproto.CmdPut))
+		assert.True(t, h.Supports(cacheproto.CmdGet))
+		assert.True(t, h.Supports(cacheproto.CmdClose))
+	})
 }
 
 func TestHandler_Handle_Close(t *testing.T) {
