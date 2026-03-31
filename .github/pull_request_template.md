@@ -13,6 +13,7 @@ Read the [Contribution guidelines](/.github/CODE_OF_CONDUCT.md).
 - [ ] Generate the docs.
 - [ ] Run the relevant tests successfully.
 - [ ] Include release notes. If this PR is backward incompatible, include a migration guide.
+- [ ] Update the CHANGELOG.md file: add a feature / bug fix entry for this PR under `Unreleased` section.
 
 ## Release Notes (draft)
 

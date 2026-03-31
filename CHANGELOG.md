@@ -12,6 +12,8 @@ The guideline for versioning is as follows:
 - If the change is not related to new features i.e. bugfixes, dependency upgrades, etc., increase patch version (e.g. `v1.2.0` -> `v1.2.1`).
 
 ## [Unreleased]
+
+## [1.2.0] - 2026-03-31
 - Added half-open state to circuit breaker: after `retryAfter` elapses, a single probe request is allowed through to test if the upstream has recovered
 - Added `--disable-put` / `DISABLE_PUT` flag to disable writing to remote storage
 
