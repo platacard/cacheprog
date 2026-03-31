@@ -430,48 +430,14 @@ func TestHandler_Handle_Put(t *testing.T) {
 		assert.Equal(t, "/tmp/cache/789", resp.DiskPath)
 	})
 
-	t.Run("read-only mode skips remote put", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-
-		localStorage := NewMockLocalStorage(ctrl)
-		remoteStorage := NewMockRemoteStorage(ctrl)
-		compressionCodec := NewMockCompressionCodec(ctrl)
-		writer := &mockResponseWriter{}
-
+	t.Run("disable put", func(t *testing.T) {
 		h := NewHandler(HandlerOptions{
-			RemoteStorage:    remoteStorage,
-			LocalStorage:     localStorage,
-			CompressionCodec: compressionCodec,
-			CloseTimeout:     time.Second,
-			ReadOnly:         true,
+			DisablePut: true,
 		})
 
-		payload := []byte("data")
-		body := &mockReadSeekCloser{bytes.NewReader(payload)}
-		localStorage.EXPECT().
-			PutLocal(gomock.Any(), &LocalPutRequest{
-				ActionID: actionID,
-				OutputID: outputID,
-				Size:     int64(len(payload)),
-				Body:     body,
-			}).
-			Return(&LocalPutResponse{DiskPath: "/tmp/cache/789"}, nil)
-
-		// remoteStorage.Put is NOT expected to be called
-
-		h.Handle(ctx, writer, &cacheproto.Request{
-			ID:       1,
-			Command:  cacheproto.CmdPut,
-			ActionID: actionID,
-			OutputID: outputID,
-			BodySize: int64(len(payload)),
-			Body:     body,
-		})
-
-		require.Len(t, writer.responses, 1)
-		resp := writer.responses[0]
-		assert.Equal(t, int64(1), resp.ID)
-		assert.Equal(t, "/tmp/cache/789", resp.DiskPath)
+		assert.False(t, h.Supports(cacheproto.CmdPut))
+		assert.True(t, h.Supports(cacheproto.CmdGet))
+		assert.True(t, h.Supports(cacheproto.CmdClose))
 	})
 }
 
