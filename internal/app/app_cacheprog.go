@@ -24,6 +24,7 @@ type CacheprogAppArgs struct {
 	MaxConcurrentRemotePuts int           `arg:"--max-concurrent-remote-puts,env:MAX_CONCURRENT_REMOTE_PUTS" placeholder:"NUM" help:"Max number of concurrent remote puts, unlimited if not provided"`
 	MaxBackgroundWait       time.Duration `arg:"--max-background-wait,env:MAX_BACKGROUND_WAIT" placeholder:"DURATION" default:"10s" help:"Max time to wait for waiting of background operations to complete"`
 	MinRemotePutSize        int64         `arg:"--min-remote-put-size,env:MIN_REMOTE_PUT_SIZE" placeholder:"SIZE" help:"Min size of object to push to remote storage, no size limit if not provided"`
+	RemoteGetTimeout        time.Duration `arg:"--remote-get-timeout,env:REMOTE_GET_TIMEOUT" placeholder:"DURATION" help:"Max time for a remote GET including fetch, decompress, and local write. Prevents hangs on dead connections. 0 means no timeout."`
 	DisableGet              bool          `arg:"--disable-get,env:DISABLE_GET" help:"Disable getting objects from any storage, useful to force rebuild of the project and rewrite cache"`
 	DisablePut              bool          `arg:"--disable-put,env:DISABLE_PUT" help:"Disable writing to remote storage"`
 }
@@ -125,6 +126,7 @@ func (a *CacheprogAppArgs) Run(ctx context.Context) error {
 		MaxConcurrentRemoteGets: a.MaxConcurrentRemoteGets,
 		MaxConcurrentRemotePuts: a.MaxConcurrentRemotePuts,
 		LocalStorage:            cacheprog.ObservingLocalStorage{LocalStorage: diskStorage},
+		RemoteGetTimeout:        a.RemoteGetTimeout,
 		CloseTimeout:            a.MaxBackgroundWait,
 		CompressionCodec:        compression.NewCodec(),
 		DisableGet:              a.DisableGet,
