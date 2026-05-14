@@ -148,11 +148,12 @@ type Handler struct {
 	minRemotePutSize int64
 	compressionCodec CompressionCodec
 
-	localStorage LocalStorage
-	closeTimeout time.Duration
-	closeChan    chan struct{} // closed on "close" command
-	closeWG      sync.WaitGroup
-	onClose      func(ctx context.Context) error
+	localStorage     LocalStorage
+	remoteGetTimeout time.Duration
+	closeTimeout     time.Duration
+	closeChan        chan struct{} // closed on "close" command
+	closeWG          sync.WaitGroup
+	onClose          func(ctx context.Context) error
 
 	disableGet bool
 	disablePut bool
@@ -172,6 +173,7 @@ type HandlerOptions struct {
 	CompressionCodec        CompressionCodec // compression codec to use on remote storage, if not provided - no compression will be used
 	DisableGet              bool             // disable getting objects from any storage, useful to force rebuild of the project and rewrite cache
 	DisablePut              bool             // disable writing to remote storage
+	RemoteGetTimeout        time.Duration    // max time for a remote GET (fetch + decompress + local write), 0 - no timeout
 
 	CloseTimeout time.Duration                   // max time to wait for handler to close, 0 - no timeout
 	OnClose      func(ctx context.Context) error // if provided - expected to be blocking, called on close command
@@ -195,6 +197,7 @@ func NewHandler(opts HandlerOptions) *Handler {
 		minRemotePutSize: opts.MinRemotePutSize,
 		compressionCodec: opts.CompressionCodec,
 		localStorage:     opts.LocalStorage,
+		remoteGetTimeout: opts.RemoteGetTimeout,
 		closeTimeout:     opts.CloseTimeout,
 		onClose:          opts.OnClose,
 		closeChan:        make(chan struct{}),
@@ -223,7 +226,6 @@ func (h *Handler) Handle(ctx context.Context, writer cacheproto.ResponseWriter, 
 
 func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWriter, req *cacheproto.Request) {
 	if h.disableGet {
-		// this should never happen because compiler must not call this method if we announced disabled 'get' support
 		h.writeResponse(ctx, writer, &cacheproto.Response{
 			ID:  req.ID,
 			Err: "getting objects from any storage is disabled",
@@ -267,63 +269,70 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 
 	defer h.enterGetRemote()()
 
-	remoteObj, err := h.remoteStorage.Get(ctx, &GetRequest{
-		ActionID: req.ActionID,
-	})
+	if h.remoteGetTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, h.remoteGetTimeout)
+		defer cancel()
+	}
+
+	localObj, err = h.fetchAndStoreRemote(ctx, req.ActionID)
 	switch {
 	case errors.Is(err, nil):
-		// store object in local storage and return path
-		defer remoteObj.Body.Close()
+		h.getHits.Add(1)
+		h.writeResponse(ctx, writer, &cacheproto.Response{
+			ID:       req.ID,
+			OutputID: localObj.OutputID,
+			Time:     &localObj.ModTime,
+			Size:     localObj.Size,
+			DiskPath: localObj.DiskPath,
+		})
 	case errors.Is(err, ErrNotFound):
 		h.writeResponse(ctx, writer, &cacheproto.Response{
 			ID:   req.ID,
 			Miss: true,
 		})
-		return
 	default:
 		h.writeResponse(ctx, writer, &cacheproto.Response{
 			ID:  req.ID,
 			Err: fmt.Sprintf("failed to get object: %v", err),
 		})
-		return
 	}
+}
+
+func (h *Handler) fetchAndStoreRemote(ctx context.Context, actionID []byte) (*LocalGetResponse, error) {
+	remoteObj, err := h.remoteStorage.Get(ctx, &GetRequest{
+		ActionID: actionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer remoteObj.Body.Close()
 
 	decompressedObj, err := h.compressionCodec.Decompress(&DecompressRequest{
 		Body:      remoteObj.Body,
 		Algorithm: remoteObj.CompressionAlgorithm,
 	})
 	if err != nil {
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to decompress object: %v", err),
-		})
-		return
+		return nil, fmt.Errorf("decompress: %w", err)
 	}
-
 	defer decompressedObj.Body.Close()
 
-	newLocalObj, err := h.localStorage.PutLocal(ctx, &LocalPutRequest{
-		ActionID: req.ActionID,
+	localObj, err := h.localStorage.PutLocal(ctx, &LocalPutRequest{
+		ActionID: actionID,
 		OutputID: remoteObj.OutputID,
 		Size:     remoteObj.UncompressedSize,
 		Body:     decompressedObj.Body,
 	})
 	if err != nil {
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to put object: %v", err),
-		})
-		return
+		return nil, err
 	}
 
-	h.getHits.Add(1)
-	h.writeResponse(ctx, writer, &cacheproto.Response{
-		ID:       req.ID,
+	return &LocalGetResponse{
 		OutputID: remoteObj.OutputID,
-		Time:     &remoteObj.ModTime,
+		ModTime:  remoteObj.ModTime,
 		Size:     remoteObj.UncompressedSize,
-		DiskPath: newLocalObj.DiskPath,
-	})
+		DiskPath: localObj.DiskPath,
+	}, nil
 }
 
 func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWriter, req *cacheproto.Request) {

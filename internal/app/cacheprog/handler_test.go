@@ -183,6 +183,53 @@ func TestHandler_Handle_Get(t *testing.T) {
 		assert.True(t, resp.Miss)
 	})
 
+	t.Run("remote get timeout returns error", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			localStorage := NewMockLocalStorage(ctrl)
+			remoteStorage := NewMockRemoteStorage(ctrl)
+			compressionCodec := NewMockCompressionCodec(ctrl)
+			writer := &mockResponseWriter{}
+
+			h := NewHandler(HandlerOptions{
+				RemoteStorage:    remoteStorage,
+				LocalStorage:     localStorage,
+				CompressionCodec: compressionCodec,
+				RemoteGetTimeout: 100 * time.Millisecond,
+			})
+
+			localStorage.EXPECT().
+				GetLocal(gomock.Any(), &LocalGetRequest{ActionID: actionID}).
+				Return(nil, ErrNotFound)
+
+			// Remote storage blocks longer than the timeout
+			remoteStorage.EXPECT().
+				Get(gomock.Any(), &GetRequest{ActionID: actionID}).
+				DoAndReturn(func(ctx context.Context, _ *GetRequest) (*GetResponse, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				})
+
+			startTime := time.Now()
+			h.Handle(ctx, writer, &cacheproto.Request{
+				ID:       5,
+				Command:  cacheproto.CmdGet,
+				ActionID: actionID,
+			})
+			synctest.Wait()
+			elapsed := time.Since(startTime)
+
+			require.Len(t, writer.responses, 1)
+			resp := writer.responses[0]
+			assert.Equal(t, int64(5), resp.ID)
+			assert.False(t, resp.Miss)
+			assert.Contains(t, resp.Err, "context deadline exceeded")
+			assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond)
+			assert.Less(t, elapsed, 200*time.Millisecond)
+		})
+	})
+
 	t.Run("disable get", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 
