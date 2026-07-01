@@ -46,7 +46,7 @@ This is how [GitLab CI caching](https://docs.gitlab.com/ci/caching/), [Github Ac
 This technique does work without extra tools but has a major downside: pushing and pulling _orphan objects_ from/to remote storage.
 Such objects are result of changes in source code, compiler version, etc. They are still present in cache but probably never will be used in a future.
 It also prevents possible deduplication on external storage side.
-Go standard library is included in every project so compiling may it will generate a lot of objects that are identical between all projects.
+Go standard library is included in every project so compiling it will generate a lot of objects that are identical between all projects.
 
 To be fair Go compiler performs periodical cache trimming to avoid bloating but this problem hit us hard when we tried to preserve cache for [golangci-lint](https://golangci-lint.run/). We experienced a severe delays during uploading/downloading and (un)packing golangci-lint cache. That delays suddenly became so big that **clean runs (without cache) became faster than runs with cache.**
 
@@ -64,7 +64,7 @@ To improve run times this tool asynchronously uploads objects to remote storage 
 
 ## Installation
 
-This tool is intended to use in CI enviroments and distributed as a Docker image with single binary because it's a most versatile way to distribute tools for CI.
+This tool is intended to use in CI environments and distributed as a Docker image with single binary because it's a most versatile way to distribute tools for CI.
 
 We **do not recommend** to install from source code using `go get`/`go install` inside CI job because it will compile in every single job run and basically ruin the whole idea of caching in external storage to reduce job run time.
 
@@ -97,11 +97,11 @@ Environment variables for S3-compatible storage are:
 * `CACHEPROG_S3_ACCESS_KEY_SECRET` - S3 access key secret, not needed for AWS S3.
 * `CACHEPROG_S3_SESSION_TOKEN` - S3 session token, not needed for AWS S3.
 * `CACHEPROG_S3_CREDENTIALS_ENDPOINT` - Credentials endpoint for S3-compatible storages, not needed for AWS S3.
-* `CACHEPROG_S3_PREFIX` - Prefix for S3 keys, useful to run multiple apps on same bucket i.e. for separation between multiple projects in one bucket or coexistance with [sccache](https://github.com/mozilla/sccache). Templated, `GOOS`, `GOARCH` and `env.<env var>` are available. Template format: `{% GOOS %}`.
+* `CACHEPROG_S3_PREFIX` - Prefix for S3 keys, useful to run multiple apps on same bucket i.e. for separation between multiple projects in one bucket or coexistence with [sccache](https://github.com/mozilla/sccache). Templated, `GOOS`, `GOARCH` and `env.<env var>` are available. Template format: `{% GOOS %}`.
 * `CACHEPROG_S3_EXPIRATION` - Sets expiration for each S3 object during Put, 0 - no expiration. Accepts duration string, e.g. `1h`, `10m`, `10s`, etc.
 * `CACHEPROG_S3_EXCLUDE_HEADERS_FROM_SIGNING` - Exclude specific headers from request signature. Comma-separated list, e.g. `Accept-Encoding,...`. Some S3-compatible storage providers are altering headers internally and this breaks request signature verification.
 
-Coniguration notes for some S3-compatible storages:
+Configuration notes for some S3-compatible storages:
 * **AWS S3**: nothing special needed.
 * **Minio**: use schemes `minio+http://`, `minio+https://` for endpoint because Minio uses a little bit different path resolution logic for buckets. Login and password are provided via `CACHEPROG_S3_ACCESS_KEY_ID` and `CACHEPROG_S3_ACCESS_KEY_SECRET`.
 * **Google Cloud Storage**: https://cloud.google.com/storage/docs/aws-simple-migration, extra variables needed: `CACHEPROG_S3_ENDPOINT` set to `https://storage.googleapis.com`, `CACHEPROG_S3_ACCESS_KEY_ID`, `CACHEPROG_S3_ACCESS_KEY_SECRET`. `CACHEPROG_S3_REGION` may be set to `auto`.
@@ -158,6 +158,54 @@ CI job must have following environment variables set:
 
 Other flags or environment variables may be set depending on the needs. To see them run `cacheprog direct --help`.
 
+### Example: GitHub Actions
+
+A minimal workflow that uses cacheprog in `direct` mode with an S3 bucket as the
+build-cache backend. The prebuilt binary is copied out of the published image
+(`ghcr.io/platacard/cacheprog`) rather than installed with `go install`, which would
+recompile cacheprog on every run and defeat the purpose of remote caching.
+
+```yaml
+name: build
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      CACHEPROG_REMOTE_STORAGE_TYPE: s3
+      CACHEPROG_S3_BUCKET: my-go-build-cache
+      CACHEPROG_S3_REGION: us-east-1
+      # For non-AWS S3 (Minio, GCS, etc.) also set CACHEPROG_S3_ENDPOINT.
+      CACHEPROG_S3_ACCESS_KEY_ID: ${{ secrets.CACHEPROG_S3_ACCESS_KEY_ID }}
+      CACHEPROG_S3_ACCESS_KEY_SECRET: ${{ secrets.CACHEPROG_S3_ACCESS_KEY_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24' # GOCACHEPROG requires Go 1.24+
+          # The build cache is served by cacheprog, so the built-in cache is
+          # disabled to avoid archiving GOCACHE a second time.
+          cache: false
+
+      - name: Install cacheprog
+        run: |
+          cid=$(docker create ghcr.io/platacard/cacheprog:v1.2.0)
+          docker cp "$cid:/cacheprog" /usr/local/bin/cacheprog
+          docker rm "$cid"
+
+      - name: Build and test
+        env:
+          GOCACHEPROG: /usr/local/bin/cacheprog
+        run: |
+          go build ./...
+          go test ./...
+```
+
+The bucket should be in the same region as the runners — the Go cache is
+latency-sensitive (see the note in [Configuration](#configuration)).
+
 ### Running Go compiler during Docker image building (Dockerfile `RUN` instruction)
 
 This is a case when your project is being build by running `docker build` command in CI. So you have something like this in your Dockerfile:
@@ -168,7 +216,7 @@ RUN go build -o /bin/project ./cmd/project
 ```
 
 To make things possible here we provide a `cacheprog proxy` mode.
-In this mode cachprog runs as a sidecar for translating requests from `http` storage type into any storage type.
+In this mode cacheprog runs as a sidecar for translating requests from `http` storage type into any storage type.
 It allows us to not deal with authentication inside docker build context.
 
 **NOTE**. This mode is not intended to be used as dedicated service because it does not contain any authentication mechanism for incoming requests. 
@@ -176,7 +224,7 @@ It allows us to not deal with authentication inside docker build context.
 Setup is a bit more complex in this case. Following things are required:
 * custom base image with Go compiler, cacheprog binary and other dependencies
 * all project dockerfiles should inherit this base image
-* started cachprog in a proxy mode before running `docker build` command, cacheprog proxy must be network-accessible from `docker build` command
+* started cacheprog in a proxy mode before running `docker build` command, cacheprog proxy must be network-accessible from `docker build` command
 
 Base image also must have following settings in `ONBUILD` instructions:
 ```dockerfile
@@ -272,7 +320,7 @@ To enable debugging, profiling and tracing you can use following environment var
 * `CACHEPROG_TRACE_PROFILE_PATH` - path to write trace profile.
 * `CACHEPROG_FGPROF_PATH` - path to write [fgprof](https://github.com/felixge/fgprof) (wall-clock profiling) profile.
 
-All these variables are optional and if not provided nothing will be written. Artifacts produced by cachprog may be collected using your CI artifact collection mechanism.
+All these variables are optional and if not provided nothing will be written. Artifacts produced by cacheprog may be collected using your CI artifact collection mechanism.
 
 **NOTE**. `DEBUG` logging level generates **a lot** of logs so it's not recommended to use it in production.
 
