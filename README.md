@@ -160,10 +160,10 @@ Other flags or environment variables may be set depending on the needs. To see t
 
 ### Example: GitHub Actions
 
-A minimal workflow that uses cacheprog in `direct` mode with an S3 bucket as the
-build-cache backend. The prebuilt binary is copied out of the published image
-(`ghcr.io/platacard/cacheprog`) rather than installed with `go install`, which would
-recompile cacheprog on every run and defeat the purpose of remote caching.
+A minimal workflow that wires cacheprog into a Go job in `direct` mode with an S3 bucket as
+the build-cache backend. The prebuilt binary is downloaded from the
+[Releases](https://github.com/platacard/cacheprog/releases) page (using `go install` here
+would recompile cacheprog on every run and defeat the purpose of remote caching).
 
 ```yaml
 name: build
@@ -185,26 +185,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24' # GOCACHEPROG requires Go 1.24+
-          # The build cache is served by cacheprog, so the built-in cache is
-          # disabled to avoid archiving GOCACHE a second time.
+          # cacheprog serves the build cache (GOCACHE), so setup-go's built-in
+          # cache is disabled to avoid archiving GOCACHE a second time.
           cache: false
 
       - name: Install cacheprog
         run: |
-          cid=$(docker create ghcr.io/platacard/cacheprog:v1.2.0)
-          docker cp "$cid:/cacheprog" /usr/local/bin/cacheprog
-          docker rm "$cid"
+          VERSION=v1.2.0
+          curl -sSfL "https://github.com/platacard/cacheprog/releases/download/${VERSION}/cacheprog_${VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" cacheprog
+          echo "GOCACHEPROG=$RUNNER_TEMP/cacheprog" >> "$GITHUB_ENV"
 
       - name: Build and test
-        env:
-          GOCACHEPROG: /usr/local/bin/cacheprog
         run: |
           go build ./...
           go test ./...
 ```
 
-The bucket should be in the same region as the runners — the Go cache is
-latency-sensitive (see the note in [Configuration](#configuration)).
+cacheprog handles the Go build cache (`GOCACHE`); the module cache is separate, so keep
+caching it (e.g. with `actions/cache`) if your builds download many modules. This setup
+pays off most for large build/lint caches with an S3 bucket close to the runners (see
+[Rationale](#rationale)); for small projects setup-go's built-in caching may be simpler.
 
 ### Running Go compiler during Docker image building (Dockerfile `RUN` instruction)
 
