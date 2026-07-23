@@ -20,6 +20,8 @@ type CacheprogAppArgs struct {
 	MetricsPushArgs
 
 	RootDirectory           string        `arg:"--root-directory,env:ROOT_DIRECTORY" placeholder:"PATH" help:"Root directory to local storage of objects. Must be read-write accessible by user and read-accessible by 'go' compiler. If not provided, subdirectory in system temporary directory will be used."`
+	RemoteGetTimeout        time.Duration `arg:"--remote-get-timeout,env:REMOTE_GET_TIMEOUT" placeholder:"DURATION" default:"5s" help:"Timeout for remote get requests to remote storage, 0 - no timeout"`
+	RemotePutTimeout        time.Duration `arg:"--remote-put-timeout,env:REMOTE_PUT_TIMEOUT" placeholder:"DURATION" default:"5s" help:"Timeout for remote put requests to remote storage, 0 - no timeout"`
 	MaxConcurrentRemoteGets int           `arg:"--max-concurrent-remote-gets,env:MAX_CONCURRENT_REMOTE_GETS" placeholder:"NUM" help:"Max number of concurrent remote gets, unlimited if not provided"`
 	MaxConcurrentRemotePuts int           `arg:"--max-concurrent-remote-puts,env:MAX_CONCURRENT_REMOTE_PUTS" placeholder:"NUM" help:"Max number of concurrent remote puts, unlimited if not provided"`
 	MaxBackgroundWait       time.Duration `arg:"--max-background-wait,env:MAX_BACKGROUND_WAIT" placeholder:"DURATION" default:"10s" help:"Max time to wait for waiting of background operations to complete"`
@@ -122,6 +124,8 @@ func (a *CacheprogAppArgs) Run(ctx context.Context) error {
 
 	h := cacheprog.NewHandler(cacheprog.HandlerOptions{
 		RemoteStorage:           remoteStorage,
+		RemoteGetTimeout:        a.RemoteGetTimeout,
+		RemotePutTimeout:        a.RemotePutTimeout,
 		MaxConcurrentRemoteGets: a.MaxConcurrentRemoteGets,
 		MaxConcurrentRemotePuts: a.MaxConcurrentRemotePuts,
 		LocalStorage:            cacheprog.ObservingLocalStorage{LocalStorage: diskStorage},

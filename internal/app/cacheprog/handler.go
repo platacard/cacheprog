@@ -145,6 +145,8 @@ type Handler struct {
 	remoteStorage    RemoteStorage
 	remoteGetSema    chan struct{}
 	remotePutSema    chan struct{}
+	remotePutTimeout time.Duration
+	remoteGetTimeout time.Duration
 	minRemotePutSize int64
 	compressionCodec CompressionCodec
 
@@ -165,6 +167,8 @@ type Handler struct {
 
 type HandlerOptions struct {
 	RemoteStorage           RemoteStorage    // if provided - remote storage will be used
+	RemotePutTimeout        time.Duration    // timeout for remote put requests to remote storage, 0 - no timeout
+	RemoteGetTimeout        time.Duration    // timeout for remote get requests to remote storage, 0 - no timeout
 	MaxConcurrentRemoteGets int              // max number of concurrent get requests to remote storage, 0 - unlimited
 	MaxConcurrentRemotePuts int              // max number of concurrent put requests to remote storage, 0 - unlimited
 	MinRemotePutSize        int64            // min size of object to push to remote storage, 0 - no limit
@@ -192,6 +196,8 @@ func NewHandler(opts HandlerOptions) *Handler {
 		remoteStorage:    opts.RemoteStorage,
 		remoteGetSema:    remoteGetSema,
 		remotePutSema:    remotePutSema,
+		remotePutTimeout: opts.RemotePutTimeout,
+		remoteGetTimeout: opts.RemoteGetTimeout,
 		minRemotePutSize: opts.MinRemotePutSize,
 		compressionCodec: opts.CompressionCodec,
 		localStorage:     opts.LocalStorage,
@@ -265,7 +271,33 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 		return
 	}
 
-	defer h.enterGetRemote()()
+	remoteObj, newLocalObj, err := h.getFromRemoteToLocal(ctx, req)
+	switch {
+	case errors.Is(err, nil):
+		h.getHits.Add(1)
+		h.writeResponse(ctx, writer, &cacheproto.Response{
+			ID:       req.ID,
+			OutputID: remoteObj.OutputID,
+			Time:     &remoteObj.ModTime,
+			Size:     remoteObj.UncompressedSize,
+			DiskPath: newLocalObj.DiskPath,
+		})
+	case errors.Is(err, ErrNotFound):
+		h.writeResponse(ctx, writer, &cacheproto.Response{
+			ID:   req.ID,
+			Miss: true,
+		})
+	default:
+		h.writeResponse(ctx, writer, &cacheproto.Response{
+			ID:  req.ID,
+			Err: err.Error(),
+		})
+	}
+}
+
+func (h *Handler) getFromRemoteToLocal(ctx context.Context, req *cacheproto.Request) (*GetResponse, *LocalPutResponse, error) {
+	ctx, exit := h.enterGetRemote(ctx)
+	defer exit()
 
 	remoteObj, err := h.remoteStorage.Get(ctx, &GetRequest{
 		ActionID: req.ActionID,
@@ -275,17 +307,9 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 		// store object in local storage and return path
 		defer remoteObj.Body.Close()
 	case errors.Is(err, ErrNotFound):
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:   req.ID,
-			Miss: true,
-		})
-		return
+		return nil, nil, ErrNotFound
 	default:
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to get object: %v", err),
-		})
-		return
+		return nil, nil, fmt.Errorf("failed to get object: %w", err)
 	}
 
 	decompressedObj, err := h.compressionCodec.Decompress(&DecompressRequest{
@@ -293,11 +317,7 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 		Algorithm: remoteObj.CompressionAlgorithm,
 	})
 	if err != nil {
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to decompress object: %v", err),
-		})
-		return
+		return nil, nil, fmt.Errorf("failed to decompress object: %w", err)
 	}
 
 	defer decompressedObj.Body.Close()
@@ -309,21 +329,10 @@ func (h *Handler) handleGet(ctx context.Context, writer cacheproto.ResponseWrite
 		Body:     decompressedObj.Body,
 	})
 	if err != nil {
-		h.writeResponse(ctx, writer, &cacheproto.Response{
-			ID:  req.ID,
-			Err: fmt.Sprintf("failed to put object: %v", err),
-		})
-		return
+		return nil, nil, fmt.Errorf("failed to put local object: %w", err)
 	}
 
-	h.getHits.Add(1)
-	h.writeResponse(ctx, writer, &cacheproto.Response{
-		ID:       req.ID,
-		OutputID: remoteObj.OutputID,
-		Time:     &remoteObj.ModTime,
-		Size:     remoteObj.UncompressedSize,
-		DiskPath: newLocalObj.DiskPath,
-	})
+	return remoteObj, newLocalObj, nil
 }
 
 func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWriter, req *cacheproto.Request) {
@@ -353,7 +362,7 @@ func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWrite
 	// perform remote storage upload in background to avoid response blocking
 	// upload failure is not critical, we already stored object in local storage
 	if h.remoteStorage != nil {
-		h.closeWG.Go(func() { h.putToRemote(req.ActionID) })
+		h.closeWG.Go(func() { h.putToRemote(context.WithoutCancel(ctx), req.ActionID) })
 	}
 
 	h.writeResponse(ctx, writer, &cacheproto.Response{
@@ -362,9 +371,7 @@ func (h *Handler) handlePut(ctx context.Context, writer cacheproto.ResponseWrite
 	})
 }
 
-func (h *Handler) putToRemote(actionID []byte) {
-	ctx := logging.AttachArgs(context.Background(), "action_id", logging.Bytes(actionID))
-
+func (h *Handler) putToRemote(ctx context.Context, actionID []byte) {
 	ctx, exit := h.enterPutToRemote(ctx)
 	defer exit()
 
@@ -444,19 +451,36 @@ func (h *Handler) writeResponse(ctx context.Context, writer cacheproto.ResponseW
 	}
 }
 
-func (h *Handler) enterGetRemote() (exit func()) {
+func (h *Handler) enterGetRemote(ctx context.Context) (outCtx context.Context, exit func()) {
+	outCtx = ctx
+	outCtxCancel := func() {}
+
+	if h.remoteGetTimeout > 0 {
+		outCtx, outCtxCancel = context.WithTimeout(ctx, h.remoteGetTimeout)
+	}
+
 	if h.remoteGetSema != nil {
-		h.remoteGetSema <- struct{}{}
-		return func() {
-			<-h.remoteGetSema
+		select {
+		case <-ctx.Done():
+			return outCtx, outCtxCancel
+		case h.remoteGetSema <- struct{}{}:
+			return outCtx, func() {
+				<-h.remoteGetSema
+				outCtxCancel()
+			}
 		}
 	}
-	return func() {}
+
+	return outCtx, outCtxCancel
 }
 
 func (h *Handler) enterPutToRemote(ctx context.Context) (outCtx context.Context, exit func()) {
 	outCtx = ctx
 	outCtxCancel := func() {}
+
+	if h.remotePutTimeout > 0 {
+		outCtx, outCtxCancel = context.WithTimeout(ctx, h.remotePutTimeout)
+	}
 
 	applyCloseTimeout := func() {
 		outCtxCancel()

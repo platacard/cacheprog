@@ -209,6 +209,47 @@ func TestHandler_Handle_Get(t *testing.T) {
 		assert.Equal(t, int64(4), resp.ID)
 		assert.Equal(t, "getting objects from any storage is disabled", resp.Err)
 	})
+
+	t.Run("remote get timeout", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			localStorage := NewMockLocalStorage(ctrl)
+			remoteStorage := NewMockRemoteStorage(ctrl)
+			compressionCodec := NewMockCompressionCodec(ctrl)
+			writer := &mockResponseWriter{}
+
+			h := NewHandler(HandlerOptions{
+				RemoteStorage:    remoteStorage,
+				LocalStorage:     localStorage,
+				CompressionCodec: compressionCodec,
+				RemoteGetTimeout: time.Second,
+			})
+			localStorage.EXPECT().
+				GetLocal(gomock.Any(), &LocalGetRequest{ActionID: actionID}).
+				Return(nil, ErrNotFound)
+			remoteStorage.EXPECT().
+				Get(gomock.Any(), &GetRequest{ActionID: actionID}).
+				DoAndReturn(func(ctx context.Context, _ *GetRequest) (*GetResponse, error) {
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case <-time.After(2 * time.Second):
+						return nil, ErrNotFound
+					}
+				})
+			h.Handle(ctx, writer, &cacheproto.Request{
+				ID:       1,
+				Command:  cacheproto.CmdGet,
+				ActionID: actionID,
+			})
+			synctest.Wait()
+			require.Len(t, writer.responses, 1)
+			resp := writer.responses[0]
+			assert.Equal(t, int64(1), resp.ID)
+			assert.Equal(t, "failed to get object: context deadline exceeded", resp.Err)
+		})
+	})
 }
 
 func TestHandler_Handle_Put(t *testing.T) {
@@ -438,6 +479,101 @@ func TestHandler_Handle_Put(t *testing.T) {
 		assert.False(t, h.Supports(cacheproto.CmdPut))
 		assert.True(t, h.Supports(cacheproto.CmdGet))
 		assert.True(t, h.Supports(cacheproto.CmdClose))
+	})
+
+	t.Run("remote put timeout", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			localStorage := NewMockLocalStorage(ctrl)
+			remoteStorage := NewMockRemoteStorage(ctrl)
+			compressionCodec := NewMockCompressionCodec(ctrl)
+			writer := &mockResponseWriter{}
+
+			h := NewHandler(HandlerOptions{
+				RemoteStorage:    remoteStorage,
+				LocalStorage:     localStorage,
+				CompressionCodec: compressionCodec,
+				RemotePutTimeout: time.Second,
+			})
+			payload := []byte("data")
+			body := &mockReadSeekCloser{bytes.NewReader(payload)}
+			localStorage.EXPECT().
+				PutLocal(gomock.Any(), &LocalPutRequest{
+					ActionID: actionID,
+					OutputID: outputID,
+					Size:     int64(len(payload)),
+					Body:     body,
+				}).
+				Return(&LocalPutResponse{DiskPath: "/tmp/cache/789"}, nil)
+
+			localBody := &mockReadSeekCloser{bytes.NewReader(payload)}
+			compressedPayload := []byte("compressed-data")
+			compressedBody := &mockReadSeekCloser{bytes.NewReader(compressedPayload)}
+			md5sum := md5.Sum(compressedPayload)
+			sha256sum := sha256.Sum256(compressedPayload)
+
+			localStorage.EXPECT().
+				GetLocalObject(gomock.Any(), &LocalObjectGetRequest{
+					ActionID: actionID,
+				}).
+				Return(&LocalObjectGetResponse{
+					ActionID: actionID,
+					OutputID: outputID,
+					Size:     int64(len(payload)),
+					Body:     localBody,
+				}, nil)
+
+			compressionCodec.EXPECT().
+				Compress(&CompressRequest{
+					Body: localBody,
+					Size: int64(len(payload)),
+				}).
+				Return(&CompressResponse{
+					Size:      int64(len("compressed-data")),
+					Body:      compressedBody,
+					Algorithm: "zstd",
+				}, nil)
+
+			putStarted := make(chan struct{})
+			putFinished := make(chan bool)
+			remoteStorage.EXPECT().
+				Put(gomock.Any(), &PutRequest{
+					ActionID:             actionID,
+					OutputID:             outputID,
+					Size:                 int64(len("compressed-data")),
+					Body:                 compressedBody,
+					MD5Sum:               md5sum[:],
+					Sha256Sum:            sha256sum[:],
+					CompressionAlgorithm: "zstd",
+					UncompressedSize:     int64(len(payload)),
+				}).
+				DoAndReturn(func(ctx context.Context, _ *PutRequest) (*PutResponse, error) {
+					putStarted <- struct{}{}
+					select {
+					case <-ctx.Done():
+						putFinished <- true
+						return nil, ctx.Err()
+					case <-time.After(2 * time.Second):
+						putFinished <- false
+						return &PutResponse{}, nil
+					}
+				})
+
+			h.Handle(ctx, writer, &cacheproto.Request{
+				ID:       1,
+				Command:  cacheproto.CmdPut,
+				ActionID: actionID,
+				OutputID: outputID,
+				BodySize: int64(len(payload)),
+				Body:     body,
+			})
+
+			<-putStarted                       // wait until background put is started
+			time.Sleep(2 * time.Second)        // advance time to trigger context timeout
+			putFinishedResult := <-putFinished // wait until background put is finished
+			require.True(t, putFinishedResult)
+		})
 	})
 }
 

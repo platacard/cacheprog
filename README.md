@@ -84,6 +84,8 @@ This tool is equipped with circuit-breaker for remote storage to automatically d
 * avoid bloating of stderr or log file with errors in case of remote storage unavailability or misconfiguration
 * do not slowdown compiler in case of timeout errors
 
+Remote storage timeout can be configured via `CACHEPROG_REMOTE_GET_TIMEOUT` and `CACHEPROG_REMOTE_PUT_TIMEOUT` environment variables. Default: `5s` for both.
+
 To disable it set this variable to zero or negative value.
 
 ### S3-compatible storage configuration
