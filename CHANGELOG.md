@@ -13,6 +13,10 @@ The guideline for versioning is as follows:
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-23
+- Add configurable timeouts for get and put operations to remote storage
+- Upgrade dependencies
+
 ## [1.2.0] - 2026-03-31
 - Added half-open state to circuit breaker: after `retryAfter` elapses, a single probe request is allowed through to test if the upstream has recovered
 - Added `--disable-put` / `DISABLE_PUT` flag to disable writing to remote storage
