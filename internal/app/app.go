@@ -89,7 +89,7 @@ func (a *Args) Run(ctx context.Context) error {
 
 	slog.SetDefault(logger)
 
-	if _, err := memlimit.SetGoMemLimitWithOpts(memlimit.WithLogger(logger)); err != nil {
+	if _, err := memlimit.Set(memlimit.WithLogger(logger)); err != nil {
 		slog.WarnContext(ctx, "Failed to configure memory limit", logging.Error(err))
 	}
 
