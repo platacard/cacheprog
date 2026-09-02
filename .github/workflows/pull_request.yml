@@ -153,13 +153,13 @@ jobs:
         run: mkdir -p coverage
 
       - name: Download unit test coverage
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: unit-coverage
           path: coverage
 
       - name: Download e2e test coverage
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: e2e-coverage
           path: coverage
