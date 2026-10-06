@@ -1,8 +1,8 @@
 # run server
 set-cacheprog CACHEPROG_PATH
 [!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/server-mode-test CACHEPROG_REMOTE_STORAGE_MAX_CONSECUTIVE_ERRORS=-1
-[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
-[!short] mc rm --recursive --force ${MC_FULLPATH}
+[!short] env RC_FULLPATH=${RC_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] rc rm --recursive --force ${RC_FULLPATH}
 allocate-port CACHEPROG_SERVER_PORT
 env CACHEPROG_PROXY_LISTEN_ADDRESS=localhost:${CACHEPROG_SERVER_PORT}
 recording-server start CACHEPROG_METRICS_PROXY_ENDPOINT
@@ -28,8 +28,8 @@ exec ./test_bin$exe
 cmp stdout expected_output.txt
 rm test_bin$exe
 
-# ensure that minio bucket is not empty
-[!short] mc du ${MC_FULLPATH}
+# ensure that S3 bucket is not empty
+[!short] rc du --fallback ${RC_FULLPATH}
 [!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
 [!short] ! stdout '^0B'
 [!short] ! stdout '(^|\W)0 object'

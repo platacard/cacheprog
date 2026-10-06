@@ -91,8 +91,8 @@ func NewEnv(t testing.TB) *Env {
 
 		env.stack = composeStack.
 			WithOsEnv().
-			WaitForService("minio", wait.ForHealthCheck()). // wait for minio to be ready
-			WaitForService("mc", wait.ForHealthCheck())     // wait for bucket to be created
+			WaitForService("rustfs", wait.ForHealthCheck()).
+			WaitForService("rc", wait.ForHealthCheck())
 
 		require.NoError(t, env.stack.Up(t.Context(), compose.WithRecreate("force"), compose.RemoveOrphans(true)))
 
@@ -177,12 +177,12 @@ func (e *Env) GetTestScriptParams(t testing.TB) testscript.Params {
 	}
 	require.NoError(t, gotooltest.Setup(&p))
 
-	e.configureMinio(&p)
+	e.configureS3(&p)
 
 	return p
 }
 
-func (e *Env) configureMinio(params *testscript.Params) {
+func (e *Env) configureS3(params *testscript.Params) {
 	if e.stack == nil {
 		return
 	}
@@ -193,36 +193,35 @@ func (e *Env) configureMinio(params *testscript.Params) {
 			return err
 		}
 
-		minioAddress, err := e.getServiceExposedAddress(context.Background(), "toxiproxy", "tcp", "9000")
+		s3Address, err := e.getServiceExposedAddress(context.Background(), "toxiproxy", "tcp", "9000")
 		if err != nil {
-			return fmt.Errorf("failed to get minio address: %w", err)
+			return fmt.Errorf("failed to get S3 address: %w", err)
 		}
 
 		// configuration for s3 backend to avoid repetition in scripts
 		env.Setenv("CACHEPROG_S3_ENDPOINT", (&url.URL{
-			Scheme: "minio+http",
-			Host:   minioAddress,
+			Scheme: "http",
+			Host:   s3Address,
 		}).String())
 		env.Setenv("CACHEPROG_S3_BUCKET", "files-bucket")
 		env.Setenv("CACHEPROG_S3_FORCE_PATH_STYLE", "true")
-		env.Setenv("CACHEPROG_S3_ACCESS_KEY_ID", cmp.Or(os.Getenv("MINIO_ROOT_USER"), "minioadmin"))
-		env.Setenv("CACHEPROG_S3_ACCESS_KEY_SECRET", cmp.Or(os.Getenv("MINIO_ROOT_PASSWORD"), "minioadmin"))
+		env.Setenv("CACHEPROG_S3_ACCESS_KEY_ID", cmp.Or(os.Getenv("RUSTFS_ACCESS_KEY"), "rustfsadmin"))
+		env.Setenv("CACHEPROG_S3_ACCESS_KEY_SECRET", cmp.Or(os.Getenv("RUSTFS_SECRET_KEY"), "rustfsadmin"))
 		env.Setenv("CACHEPROG_S3_SESSION_TOKEN", "")
-		env.Setenv("MINIO_ALIAS", "myminio") // defined in docker-compose.yml
+		env.Setenv("RC_ALIAS", "myrustfs") // defined in docker-compose.yml
 
 		return nil
 	}
 
-	// propagate minio client to the scripts
-	params.Cmds["mc"] = e.mcCmd
+	params.Cmds["rc"] = e.rcCmd
 }
 
-func (e *Env) mcCmd(ts *testscript.TestScript, neg bool, args []string) {
-	mcContainer, err := e.stack.ServiceContainer(context.Background(), "mc")
+func (e *Env) rcCmd(ts *testscript.TestScript, neg bool, args []string) {
+	rcContainer, err := e.stack.ServiceContainer(context.Background(), "rc")
 	ts.Check(err)
 
-	exitCode, out, err := mcContainer.Exec(context.Background(),
-		append([]string{"mc"}, args...),
+	exitCode, out, err := rcContainer.Exec(context.Background(),
+		append([]string{"rc"}, args...),
 	)
 	ts.Check(err)
 
@@ -230,11 +229,11 @@ func (e *Env) mcCmd(ts *testscript.TestScript, neg bool, args []string) {
 	ts.Check(err)
 
 	if exitCode != 0 && !neg {
-		ts.Fatalf("mc command failed with exit code %d", exitCode)
+		ts.Fatalf("rc command failed with exit code %d", exitCode)
 	}
 
 	if exitCode == 0 && neg {
-		ts.Fatalf("mc command succeeded, but expected to fail")
+		ts.Fatalf("rc command succeeded, but expected to fail")
 	}
 }
 

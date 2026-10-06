@@ -14,8 +14,8 @@ mkdir -p $WORK/disk-cache
 # if short testing enable, use only disk-backed cache
 [!short] env CACHEPROG_REMOTE_STORAGE_TYPE=s3 CACHEPROG_S3_PREFIX=tests/cgo-test
 # cleanup path for consistency
-[!short] env MC_FULLPATH=${MINIO_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
-[!short] mc rm --recursive --force ${MC_FULLPATH}
+[!short] env RC_FULLPATH=${RC_ALIAS}/${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
+[!short] rc rm --recursive --force ${RC_FULLPATH}
 
 # run with cacheprog first time
 env CACHEPROG_ROOT_DIRECTORY=$WORK/disk-cache
@@ -26,8 +26,8 @@ exec ./test_bin$exe
 cmp stdout expected_output.txt
 rm test_bin$exe
 
-# ensure that minio bucket is not empty
-[!short] mc du ${MC_FULLPATH}
+# ensure that S3 bucket is not empty
+[!short] rc du --fallback ${RC_FULLPATH}
 [!short] stdout ${CACHEPROG_S3_BUCKET}/${CACHEPROG_S3_PREFIX}
 [!short] ! stdout '^0B'
 [!short] ! stdout '(^|\W)0 object'
