@@ -4,55 +4,65 @@ services:
     restart: always
     ports:
       - "8474:8474"
-      - "9000:9000" # for minio, simulate network latency
+      - "9000:9000" # for RustFS S3, simulate network latency
     volumes:
       - ./toxiproxy.json:/toxiproxy.json:ro
     command: -config /toxiproxy.json
     networks:
-      - minio_network
-  minio:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-07-23T15-54-02Z}
+      - rustfs_network
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
     restart: always
     ports:
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
-    command: server /data --console-address ":9001"
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:-rustfsadmin}"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+    volumes:
+      - rustfs_data:/data
     healthcheck:
-      test: [ "CMD", "mc", "ready", "local" ]
+      test: ["CMD", "sh", "-ec", "curl -fsS http://127.0.0.1:9000/health"]
       interval: 2s
       timeout: 5s
       retries: 5
+      start_period: 10s
     networks:
-      - minio_network
-  mc:
-    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-07-23T15-54-02Z}
-    container_name: minio-client
+      - rustfs_network
+  rc:
+    image: ${RC_IMAGE:-rustfs/rc:v0.1.36}
+    container_name: rustfs-client
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
     restart: on-failure
-    entrypoint: 
-      - /bin/bash
+    entrypoint:
+      - /bin/sh
       - -c
       - |
-        set -eou pipefail;
-        until mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}; do
-          echo 'Waiting for MinIO to be ready...'
+        set -eu;
+        until rc alias set myrustfs http://rustfs:9000 "$$RUSTFS_ACCESS_KEY" "$$RUSTFS_SECRET_KEY"; do
+          echo 'Waiting for RustFS to be ready...'
           sleep 1
         done;
-        mc mb --ignore-existing myminio/files-bucket;
+        rc mb --ignore-existing myrustfs/files-bucket;
         read -s;
+    environment:
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:-rustfsadmin}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:-rustfsadmin}"
     healthcheck:
-      test: ["CMD", "mc", "stat", "myminio/files-bucket"]
+      test: ["CMD", "rc", "bucket", "list", "myrustfs"]
       interval: 2s
       timeout: 5s
       retries: 5
     networks:
-      - minio_network
+      - rustfs_network
     stdin_open: true
     tty: true
 
 networks:
-  minio_network:
+  rustfs_network:
+
+volumes:
+  rustfs_data:

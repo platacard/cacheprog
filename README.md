@@ -342,17 +342,18 @@ To run e2e tests see [functests](./functests/README.md).
 ### Local environment
 
 This project includes a [docker-compose.yml](./deployments/compose/docker-compose.yml) file to run local environment for testing. It has 
-* Minio server to simulate external storage.
+* [RustFS](https://github.com/rustfs/rustfs) server to simulate external storage.
+* [RustFS `rc` client](https://github.com/rustfs/rustfs) sidecar to prepare the test bucket.
 * Toxiproxy to simulate network latency and failures.
 
 To run it use:
 ```bash
 docker compose -f deployments/compose/docker-compose.yml up
 ```
-By default minio web interface is available at `http://localhost:9001`, s3 interface is available at `http://localhost:9000`. Default credentials are `minioadmin` for both login and password.
+By default the RustFS console is available at `http://localhost:9001`, and the S3 API (via Toxiproxy) at `http://localhost:9000`. Default credentials are `rustfsadmin` for both access key and secret key.
 
 Toxiproxy may be used to simulate network latency and failures. It's configured in `deployments/compose/toxiproxy.json` file. I.e. to simulate 50ms latency and 10ms jitter run:
 ```bash
-docker-compose -f deployments/compose/docker-compose.yml exec toxiproxy /toxiproxy-cli toxic add -t latency -a latency=50 -a jitter=10 minio_master
+docker-compose -f deployments/compose/docker-compose.yml exec toxiproxy /toxiproxy-cli toxic add -t latency -a latency=50 -a jitter=10 rustfs_master
 ```
 And this is the way it was used to measure impact of network latency on compile time.
