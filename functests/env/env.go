@@ -115,7 +115,7 @@ func (e *Env) getServiceExposedAddress(ctx context.Context, serviceName string, 
 		return "", fmt.Errorf("failed to create port: %w", err)
 	}
 
-	endpoint, err := container.PortEndpoint(ctx, portObj, "")
+	endpoint, err := container.PortEndpoint(ctx, string(portObj), "")
 	if err != nil {
 		return "", fmt.Errorf("failed to get endpoint: %w", err)
 	}
