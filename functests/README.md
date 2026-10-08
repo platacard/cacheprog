@@ -24,9 +24,15 @@ And then run following command to get text coverage report:
 go tool covdata textfmt -i=<coverage_directory> -o=<coverage_report_file>
 ```
 
+In case of errors in tests with golangci-lint try to run tests with pinned toolchain version:
+
+```bash
+GOCOVERDIR="<coverage_directory>" GOTOOLCHAIN=go1.26.1 go test -race -count=1 -covermode=atomic ./...
+```
+
 ## Running in Docker
 
-This may help if you're running tests on platform not fully supported by `github.com/rogpeppe/go-internal/gotooltest` i.e. `darwin/arm64`.
+This may help if you're running tests on platform not fully supported by `github.com/rogpeppe/go-internal/gotooltest`
 
 Simple one-shot run of full test suite may be launched from project root like this:
 ```bash

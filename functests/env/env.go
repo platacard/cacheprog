@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,7 +58,8 @@ func NewEnv(t testing.TB) *Env {
 	}
 
 	// compile cacheprog locally, with race and coverage enabled
-	compiler := testenv.GoToolPath(t)
+	compiler, err := goToolPath()
+	require.NoError(t, err)
 	args := []string{
 		"build",
 		"-C", projectRoot,
@@ -309,7 +311,7 @@ func (e *Env) installGoBinaryCmd(ts *testscript.TestScript, neg bool, args []str
 	importPath := args[0]
 	targetDir := ts.MkAbs(args[1])
 
-	compiler, err := testenv.GoTool()
+	compiler, err := goToolPath()
 	ts.Check(err)
 
 	compilerArgs := []string{"install"}
@@ -320,12 +322,9 @@ func (e *Env) installGoBinaryCmd(ts *testscript.TestScript, neg bool, args []str
 
 	cmd := testenv.CleanCmdEnv(exec.Command(compiler, compilerArgs...))
 	// forcefully disable cgo
-	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "CGO_ENABLED=") {
-			continue
-		}
-		cmd.Env = append(cmd.Env, env)
-	}
+	cmd.Env = slices.DeleteFunc(cmd.Env, func(env string) bool {
+		return strings.HasPrefix(env, "CGO_ENABLED=")
+	})
 	cmd.Env = append(cmd.Env, "GOBIN="+targetDir, "CGO_ENABLED=0")
 	cmd.Stdout = ts.Stdout()
 	cmd.Stderr = ts.Stderr()
@@ -361,4 +360,12 @@ func (e *Env) runInProjectRoot(t testing.TB, fn func()) {
 	}()
 
 	fn()
+}
+
+func goToolPath() (string, error) {
+	var exeSuffix string
+	if runtime.GOOS == "windows" {
+		exeSuffix = ".exe"
+	}
+	return exec.LookPath("go" + exeSuffix)
 }
