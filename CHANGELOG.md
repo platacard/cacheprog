@@ -12,6 +12,7 @@ The guideline for versioning is as follows:
 - If the change is not related to new features i.e. bugfixes, dependency upgrades, etc., increase patch version (e.g. `v1.2.0` -> `v1.2.1`).
 
 ## [Unreleased]
+- Fix remote HTTP storage PUT failing on HTTP/2 GOAWAY (server or proxy graceful shutdown): set `Request.GetBody` so net/http can retry the upload
 
 ## [1.3.0] - 2026-07-23
 - Add configurable timeouts for get and put operations to remote storage

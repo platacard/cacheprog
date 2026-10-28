@@ -145,3 +145,27 @@ func TestHTTP_Put(t *testing.T) {
 		require.NotNil(t, response)
 	})
 }
+
+func TestNewPutRequest_GetBodyRewinds(t *testing.T) {
+	payload := []byte("hello world")
+
+	req, err := storage.NewPutRequest(context.Background(), "http://example.com", &cacheprog.PutRequest{
+		ActionID: []byte{1},
+		Size:     int64(len(payload)),
+		Body:     bytes.NewReader(payload),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, req.GetBody, "GetBody is required for net/http to retry after HTTP/2 GOAWAY")
+
+	// first attempt consumes the body
+	got, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, payload, got)
+
+	// retry gets the full body again
+	body, err := req.GetBody()
+	require.NoError(t, err)
+	got, err = io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, payload, got)
+}

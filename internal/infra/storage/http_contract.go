@@ -82,6 +82,19 @@ func NewPutRequest(ctx context.Context, baseURL string, putRequest *cacheprog.Pu
 		req.Body = http.NoBody
 	} else {
 		req.Body = io.NopCloser(putRequest.Body)
+
+		// Without GetBody, net/http cannot retry a request whose body was already written,
+		// e.g. on HTTP/2 GOAWAY during a server/proxy graceful shutdown or reload.
+		if seeker, ok := putRequest.Body.(io.Seeker); ok {
+			if start, err := seeker.Seek(0, io.SeekCurrent); err == nil {
+				req.GetBody = func() (io.ReadCloser, error) {
+					if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+						return nil, err
+					}
+					return io.NopCloser(putRequest.Body), nil
+				}
+			}
+		}
 	}
 
 	req.Header.Set(OutputIDHeader, hex.EncodeToString(putRequest.OutputID))
