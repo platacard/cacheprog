@@ -12,6 +12,7 @@ The guideline for versioning is as follows:
 - If the change is not related to new features i.e. bugfixes, dependency upgrades, etc., increase patch version (e.g. `v1.2.0` -> `v1.2.1`).
 
 ## [Unreleased]
+- Fix `--min-remote-put-size` / `MIN_REMOTE_PUT_SIZE` having no effect: the option is now passed to the handler, so objects smaller than the minimum are no longer pushed to remote storage
 - Fix remote HTTP storage PUT failing on HTTP/2 GOAWAY (server or proxy graceful shutdown): set `Request.GetBody` so net/http can retry the upload
 
 ## [1.3.0] - 2026-07-23

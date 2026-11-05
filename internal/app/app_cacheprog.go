@@ -133,6 +133,7 @@ func (a *CacheprogAppArgs) Run(ctx context.Context) error {
 		CompressionCodec:        compression.NewCodec(),
 		DisableGet:              a.DisableGet,
 		DisablePut:              a.DisablePut,
+		MinRemotePutSize:        a.MinRemotePutSize,
 	})
 	defer func() {
 		statistics := h.GetStatistics()
