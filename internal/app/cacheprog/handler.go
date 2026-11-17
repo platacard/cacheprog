@@ -558,13 +558,17 @@ func (h *Handler) closeWait() {
 		close(allDone)
 	}()
 
+	// create the timer once: a time.After inside the loop would restart on every log tick
+	timeout := time.NewTimer(h.closeTimeout)
+	defer timeout.Stop()
+
 	for {
 		select {
 		case <-allDone:
 			return
 		case <-logTicker.C:
 			slog.Debug("still waiting for background jobs to finish")
-		case <-time.After(h.closeTimeout):
+		case <-timeout.C:
 			slog.Warn("background jobs did not finish in time")
 			return
 		}

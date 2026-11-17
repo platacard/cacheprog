@@ -683,6 +683,43 @@ func TestHandler_OnClose(t *testing.T) {
 		})
 	})
 
+	t.Run("OnClose timeout longer than log interval", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			// longer than the 5s "still waiting" log ticker in closeWait
+			closeTimeout := 10 * time.Second
+			release := make(chan struct{})
+
+			h := NewHandler(HandlerOptions{
+				CloseTimeout: closeTimeout,
+				OnClose: func(_ context.Context) error {
+					// a background job that does not honor its context
+					select {
+					case <-release:
+					case <-time.After(10 * time.Minute):
+					}
+					return nil
+				},
+			})
+
+			writer := &mockResponseWriter{}
+			startTime := time.Now()
+
+			h.Handle(context.Background(), writer, &cacheproto.Request{
+				ID:      1,
+				Command: cacheproto.CmdClose,
+			})
+
+			elapsed := time.Since(startTime)
+			close(release)
+
+			// close must return once CloseTimeout elapses, not when the job finishes
+			assert.Equal(t, closeTimeout, elapsed)
+
+			require.Len(t, writer.responses, 1)
+			assert.Empty(t, writer.responses[0].Err)
+		})
+	})
+
 	t.Run("OnClose returns error", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			expectedErr := errors.New("close failed")
