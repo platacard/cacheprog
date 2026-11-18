@@ -12,9 +12,15 @@ The guideline for versioning is as follows:
 - If the change is not related to new features i.e. bugfixes, dependency upgrades, etc., increase patch version (e.g. `v1.2.0` -> `v1.2.1`).
 
 ## [Unreleased]
+
+## [1.3.2] - 2026-11-19
 - Fix `--min-remote-put-size` / `MIN_REMOTE_PUT_SIZE` having no effect: the option is now passed to the handler, so objects smaller than the minimum are no longer pushed to remote storage
 - Fix remote HTTP storage PUT failing on HTTP/2 GOAWAY (server or proxy graceful shutdown): set `Request.GetBody` so net/http can retry the upload
 - Fix `--max-background-wait` / `MAX_BACKGROUND_WAIT` not being enforced for values above 5s (including the 10s default): the timer was recreated on every "still waiting" log tick, so close waited for background jobs indefinitely
+- Upgrade dependencies
+
+## [1.3.1] - 2026-10-22
+- Upgrade dependencies and go version to fix CVEs
 
 ## [1.3.0] - 2026-07-23
 - Add configurable timeouts for get and put operations to remote storage
